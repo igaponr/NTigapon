@@ -11,8 +11,10 @@
  * M5Unified: https://github.com/m5stack/M5Unified
  * M5StickCPlus2: https://github.com/m5stack/M5StickCPlus2
  */
-#include "WiFi.h"
 #include "M5StickCPlus2.h"
+#include "WiFi.h"
+#include "esp_wifi.h"
+#include "esp_mac.h"
 
 // メモリ描画領域表示（スプライト）のインスタンスを作成(必要に応じて複数作成)
 // M5Canvas canvas(&M5.Lcd);  // &M5.Lcd を &StickCP2.Display と書いても同じ
@@ -51,7 +53,7 @@ void loop()
         StickCP2.Display.print(n);
         StickCP2.Display.println(" networks found");
         // StickCP2.Display.println("No|RSSI|CH|Encryption|SSID|");
-        StickCP2.Display.println("|RSSI|CH|Encryption|SSID|");
+        StickCP2.Display.println("|RSSI|CH|Encrypt|SSID|");
         for (int i = 0; i < n; ++i) {
             if (i >= 6) {
                 break;
