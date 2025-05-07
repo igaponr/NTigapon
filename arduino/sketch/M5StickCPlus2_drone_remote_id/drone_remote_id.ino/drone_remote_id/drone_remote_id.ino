@@ -17,7 +17,15 @@
 #include "esp_wifi.h"
 #include "esp_mac.h"
 
+#define SERIAL_NO	"XYZ09876543210"		// RIDの製造番号
+#define REG_SYMBOL	"JA.JU0987654321"		// 無人航空機の登録記号
+
 #pragma pack(push,1)			// データを詰めて配置
+typedef struct{
+	uint8_t ver:4;			// bit[3-0] Protocol version
+	uint8_t type:4;			// bit[7-4] message type
+} Message_head;
+
 typedef struct{
 	uint16_t fragment_num:4;	// bit[3-0]  Fragment Number
 	uint16_t sequence_num:12;	// bit[15-4] Sequence Number
@@ -42,6 +50,76 @@ typedef struct{
 	uint8_t payload[0];
 } element_head;
 
+typedef struct{
+	uint8_t speed_mul:1;	// bit[0] 0:x0.25, 1:x0.75
+	uint8_t dir_seg:1;		// bit[1] 0:<180, 1:>=180
+	uint8_t heght_type:1;	// bit[2] 0:Abave Takeoff, 1:AGL
+	uint8_t resv:1;			// bit[3] reserved
+	uint8_t status:4;		// bit[7-4] status
+} Status_flag;
+
+typedef struct{
+	uint8_t horizontal:4;	// bit[3-0]
+	uint8_t vetical:4;		// bit[7-4]
+} H_V_accuracy;				// 水平垂直の正確さ
+
+typedef struct{
+	uint8_t speed:4;		// bit[3-0]
+	uint8_t baro:4;			// bit[7-4]
+}B_S_accuracy;				// 速度方位の正確さ
+
+typedef struct
+{
+	uint8_t counter = 0;		// Counter
+
+	Message_head msg;			// message type Pack (0xf0)
+	uint8_t block_size = 25;	// block size
+	uint8_t block_n = 4;		// block count
+
+	//--- Basic ID (25byte)--------------------------
+	Message_head msg1;				// BASIC_ID
+
+	uint8_t UA_type1:4;				// bit[3-0] 機体種別
+	uint8_t ID_type1:4;				// bit[7-4] ID_TYPE_SerialNo
+
+	char serial_no[20] = SERIAL_NO;	// 製造番号
+	uint8_t resv1[3];
+
+	//--- Basic ID (25byte)--------------------------
+	Message_head msg2;				// BASIC_ID
+
+	uint8_t UA_type2:4;				// bit[3-0] 機体種別
+	uint8_t ID_type2:4;				// bit[7-4] ID_TYPE_ASSIGED_REG
+
+	char reg_no[20] = REG_SYMBOL;	// 登録記号 (例： JA.JU012345ABCDE)
+	uint8_t resv2[3];
+
+	//--- Location (25byte)--------------------------
+	Message_head msg3;				// Location
+	Status_flag status;				// 飛行中、方角E/W、速度倍率などの状態
+	uint8_t dir;					// 方角
+	uint8_t speed;					// 速度
+	uint8_t Ver_speed;				// 垂直速度
+	uint32_t lat;					// 緯度
+	uint32_t lng;					// 経度
+	uint16_t Pressur_Altitude;  	// 気圧高度
+	uint16_t Geodetic_Altitude; 	// GPS高度
+	uint16_t Height;				// 地面からの高さ
+	H_V_accuracy hv_Accuracy;		// 水平垂直精度
+	B_S_accuracy bs_Accuracy;		// 方位・速度精度
+	uint16_t timestamp;				// 現在時刻の分以下の小数点１までの秒数ｘ10
+	uint8_t T_Accuracy;				// 時間精度(*0.1s)
+	uint8_t resv3;
+
+	//--- Page0 (25byte)-----------------------------
+	Message_head msg4;				// 認証情報
+	uint8_t auth_type = 0x30;		// Authentication　Message [認証情報]
+	uint8_t page_count = 0;			// Page0
+	uint8_t Length = 17;   			// headからのサイズ
+	uint32_t timestamp_auth;		// 認証時刻？(2019.1.1からの秒数)
+  uint8_t auth_head = 0; 	  	    // ヘッダ 0:AES-128bit-CCM
+	uint8_t auth_data[16] = {0};    // 認証データ(AES-128bit-CCM ってなんだ？ 解からないので無視)
+} RID_Data;
 #pragma pack(pop)
 
 
@@ -86,32 +164,36 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 	if(len <= 0) return;
 	while(len > 4){
 		printf("eid = %3d len = %3d ", e->id, e->len);
-		switch (e->id){
-			case 0: // SSID
-				if(e->len > MAX_SSID_LEN) break;
-				strncpy(ssid, (char*)e->payload, e->len);
-				ssid[e->len] = 0;
-				printf("SSID = %s\n", ssid);
-				break;
-			case 221:	// Vender Specific
-				vi = (vendor_ie_data_t *)e;
-                if ((vi->vendor_oui[0] != 0xFA) || (vi->vendor_oui[1] != 0x0B) || (vi->vendor_oui[2] != 0xBC) || (vi->vendor_oui_type != 0x0D)){  // OUIとOUI Typeの値は、RIDの場合、固定の数値
-                    return;
-                }
-				printf("Vendor OUI = %02X:%02X:%02X OUI Type = %2d data = ",vi->vendor_oui[0],vi->vendor_oui[1],vi->vendor_oui[2],vi->vendor_oui_type);		
-				for(i=0; i < vi->length; i++){
-					printf("%02X ",vi->payload[i]);	
-				}
-				printf("\n");
-				break;
-			default:
-                return;  // DJIドローンは、[SSID]と[Vendor Specific]の２つだけ
-				printf("data = ");
-				for(i=0;i < e->len; i++){
-					printf("%02X ", e->payload[i]);
-				}
-				printf("\n");
-				break;
+		switch (e->id) {
+		case 0: // SSID
+			if(e->len > MAX_SSID_LEN) break;
+			strncpy(ssid, (char*)e->payload, e->len);
+			ssid[e->len] = 0;
+			printf("SSID = %s\n", ssid);
+			break;
+		case 221:	// Vender Specific
+			vi = (vendor_ie_data_t *)e;
+            if ((vi->vendor_oui[0] != 0xFA) || (vi->vendor_oui[1] != 0x0B) || (vi->vendor_oui[2] != 0xBC) || (vi->vendor_oui_type != 0x0D)){  // OUIとOUI Typeの値は、RIDの場合、固定の数値
+                return;
+            }
+			printf("Vendor OUI = %02X:%02X:%02X OUI Type = %2d data = ",vi->vendor_oui[0],vi->vendor_oui[1],vi->vendor_oui[2],vi->vendor_oui_type);
+			for(i=0; i < vi->length; i++){
+				printf("%02X ",vi->payload[i]);
+			}
+			printf("\n");
+			{
+			    RID_Data *data = (RID_Data *)vi->payload;
+                printf("serial=%s,reg=%s,lat=%d,lng=%d\n", data->serial_no, data->reg_no, data->lat, data->lng);
+			}
+			break;
+        default:
+            return;  // DJIドローンは、[SSID]と[Vendor Specific]の２つだけ
+            printf("data = ");
+            for(i=0;i < e->len; i++){
+				printf("%02X ", e->payload[i]);
+			}
+			printf("\n");
+			break;
 		}
 		int dlen = 2 + e->len;
 		len -= dlen;
