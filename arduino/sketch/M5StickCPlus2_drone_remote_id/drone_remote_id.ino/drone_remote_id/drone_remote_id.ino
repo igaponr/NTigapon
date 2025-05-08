@@ -13,12 +13,15 @@
  */
 #include "M5StickCPlus2.h"
 #include <Arduino.h>
+#include <string.h>
 #include <WiFi.h>
 #include "esp_wifi.h"
 #include "esp_mac.h"
 
 #define SERIAL_NO	"XYZ09876543210"		// RIDの製造番号
 #define REG_SYMBOL	"JA.JU0987654321"		// 無人航空機の登録記号
+#define maxCh 14				 // max Channel -> US = 11, EU = 13, Japan = 14
+int curChannel = 1;
 
 #pragma pack(push,1)			// データを詰めて配置
 typedef struct{
@@ -71,29 +74,21 @@ typedef struct{
 typedef struct
 {
 	uint8_t counter = 0;		// Counter
-
 	Message_head msg;			// message type Pack (0xf0)
 	uint8_t block_size = 25;	// block size
 	uint8_t block_n = 4;		// block count
-
 	//--- Basic ID (25byte)--------------------------
 	Message_head msg1;				// BASIC_ID
-
 	uint8_t UA_type1:4;				// bit[3-0] 機体種別
 	uint8_t ID_type1:4;				// bit[7-4] ID_TYPE_SerialNo
-
 	char serial_no[20] = SERIAL_NO;	// 製造番号
 	uint8_t resv1[3];
-
 	//--- Basic ID (25byte)--------------------------
 	Message_head msg2;				// BASIC_ID
-
 	uint8_t UA_type2:4;				// bit[3-0] 機体種別
 	uint8_t ID_type2:4;				// bit[7-4] ID_TYPE_ASSIGED_REG
-
 	char reg_no[20] = REG_SYMBOL;	// 登録記号 (例： JA.JU012345ABCDE)
 	uint8_t resv2[3];
-
 	//--- Location (25byte)--------------------------
 	Message_head msg3;				// Location
 	Status_flag status;				// 飛行中、方角E/W、速度倍率などの状態
@@ -110,7 +105,6 @@ typedef struct
 	uint16_t timestamp;				// 現在時刻の分以下の小数点１までの秒数ｘ10
 	uint8_t T_Accuracy;				// 時間精度(*0.1s)
 	uint8_t resv3;
-
 	//--- Page0 (25byte)-----------------------------
 	Message_head msg4;				// 認証情報
 	uint8_t auth_type = 0x30;		// Authentication　Message [認証情報]
@@ -122,10 +116,6 @@ typedef struct
 } RID_Data;
 #pragma pack(pop)
 
-
-#define maxCh 14				 // max Channel -> US = 11, EU = 13, Japan = 14
-int curChannel = 1;
-
 const char *get_packet_name(wifi_promiscuous_pkt_type_t type)
 {
   switch(type) {
@@ -133,10 +123,20 @@ const char *get_packet_name(wifi_promiscuous_pkt_type_t type)
   	case WIFI_PKT_DATA: return "DATA";
 	case WIFI_PKT_CTRL: return "CTRL";
   	case WIFI_PKT_MISC: return "MISC";
-		default:		
-			return "";
-			break;
+	default: return "";
+	break;
   }
+}
+
+bool startsWith(const char* str, const char* prefix) {
+    if (str == nullptr || prefix == nullptr) {
+        return false; // NULLポインタチェック
+    }
+    // prefixの長さがstrの長さ以上であればfalse
+    if (strlen(prefix) > strlen(str)) {
+        return false;
+    }
+    return strncmp(str, prefix, strlen(prefix)) == 0;
 }
 
 void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
@@ -166,10 +166,13 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 		printf("eid = %3d len = %3d ", e->id, e->len);
 		switch (e->id) {
 		case 0: // SSID
-			if(e->len > MAX_SSID_LEN) break;
+			if (e->len > MAX_SSID_LEN) break;
+			if (strncmp((char*)e->payload, "RID-", 4) != 0){  // SSIDの先頭文字がRID-で無ければ処理終了
+			    return;
+			}
 			strncpy(ssid, (char*)e->payload, e->len);
 			ssid[e->len] = 0;
-			printf("SSID = %s\n", ssid);
+			printf("RSSI=%3d,Ch=%2d,PACKET TYPE=%s,SSID=%s\n", ppkt->rx_ctrl.rssi, ppkt->rx_ctrl.channel, get_packet_name(type), ssid);
 			break;
 		case 221:	// Vender Specific
 			vi = (vendor_ie_data_t *)e;
@@ -199,8 +202,8 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 		len -= dlen;
 		e = (element_head *)((uint8_t *)e + dlen);
 	}
-	uint8_t *fcs = (uint8_t *)e;
-	printf("FCS = %02X %02X %02X %02X\n\n",fcs[0],fcs[1],fcs[2],fcs[3]);
+	// uint8_t *fcs = (uint8_t *)e;
+	// printf("FCS = %02X %02X %02X %02X\n\n",fcs[0],fcs[1],fcs[2],fcs[3]);
 	WiFi.scanDelete();	// 最後のスキャン結果をメモリから削除します。
 }
 
