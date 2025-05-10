@@ -21,7 +21,13 @@
 #define SERIAL_NO	"XYZ09876543210"		// RIDの製造番号
 #define REG_SYMBOL	"JA.JU0987654321"		// 無人航空機の登録記号
 #define maxCh 14				 // max Channel -> US = 11, EU = 13, Japan = 14
+#define MAX_STACK_SIZE 10  // スタックの最大サイズ
+#define MAX_MESSAGE_LENGTH 100 // メッセージの最大長
+
 int curChannel = 1;
+char messageStack[MAX_STACK_SIZE][MAX_MESSAGE_LENGTH]; // メッセージスタック
+int stackTop = -1; // スタックポインタ
+SemaphoreHandle_t stackSemaphore; // スタックアクセス用のセマフォ
 
 #pragma pack(push,1)			// データを詰めて配置
 typedef struct{
@@ -163,7 +169,7 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 	// printf("Payload length = %d\n", len);
 	if(len <= 0) return;
 	while(len > 4){
-		printf("eid = %3d len = %3d ", e->id, e->len);
+		// printf("eid = %3d len = %3d ", e->id, e->len);
 		switch (e->id) {
 		case 0: // SSID
 			if (e->len > MAX_SSID_LEN) break;
@@ -179,14 +185,34 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
             if ((vi->vendor_oui[0] != 0xFA) || (vi->vendor_oui[1] != 0x0B) || (vi->vendor_oui[2] != 0xBC) || (vi->vendor_oui_type != 0x0D)){  // OUIとOUI Typeの値は、RIDの場合、固定の数値
                 return;
             }
-			printf("Vendor OUI = %02X:%02X:%02X OUI Type = %2d data = ",vi->vendor_oui[0],vi->vendor_oui[1],vi->vendor_oui[2],vi->vendor_oui_type);
-			for(i=0; i < vi->length; i++){
-				printf("%02X ",vi->payload[i]);
-			}
-			printf("\n");
+			// printf("Vendor OUI = %02X:%02X:%02X OUI Type = %2d data = ",vi->vendor_oui[0],vi->vendor_oui[1],vi->vendor_oui[2],vi->vendor_oui_type);
+// 			for(i=0; i < vi->length; i++){
+// 				printf("%02X ",vi->payload[i]);
+// 			}
+// 			printf("\n");
 			{
 			    RID_Data *data = (RID_Data *)vi->payload;
-                printf("serial=%s,reg=%s,lat=%d,lng=%d\n", data->serial_no, data->reg_no, data->lat, data->lng);
+			    char message[MAX_MESSAGE_LENGTH];
+			    snprintf(message, MAX_MESSAGE_LENGTH, "serial=%s,reg=%s,lat=%d,lng=%d,p-alt=%d,g-alt=%d",
+			     data->serial_no, data->reg_no, data->lat, data->lng, data->Pressur_Altitude, data->Geodetic_Altitude);
+                // セマフォを取得
+                if (xSemaphoreTake(stackSemaphore, portMAX_DELAY) == pdTRUE) {
+                    // スタックにメッセージを追加
+                    if (stackTop < MAX_STACK_SIZE - 1) {
+                        stackTop++;
+                        strcpy(messageStack[stackTop], message);
+                    } else {
+                        // スタックがいっぱいの場合、古いメッセージを削除
+                        for (int i = 0; i < MAX_STACK_SIZE - 1; i++) {
+                            strcpy(messageStack[i], messageStack[i + 1]);
+                        }
+                        strcpy(messageStack[MAX_STACK_SIZE - 1], message);
+                    }
+                    // セマフォを解放
+                    xSemaphoreGive(stackSemaphore);
+                }
+                printf("serial=%s,reg=%s,lat=%d,lng=%d,p-alt=%d,g-alt=%d\n",
+                 data->serial_no, data->reg_no, data->lat, data->lng, data->Pressur_Altitude, data->Geodetic_Altitude);
 			}
 			break;
         default:
@@ -231,6 +257,8 @@ void setup()
     esp_wifi_set_promiscuous_rx_cb(&rx_callback);	// 受信したときの割り込み先設定
     esp_wifi_set_channel(curChannel, WIFI_SECOND_CHAN_NONE);
     delay(100);
+    stackSemaphore = xSemaphoreCreateMutex();
+    StickCP2.Display.setCursor(0, 0);
     StickCP2.Display.println("Setup done");
 }
 
@@ -303,10 +331,22 @@ void loop()
     // // Wait a bit before scanning again.
     // delay(5000);
     
-    int vol = StickCP2.Power.getBatteryVoltage();
-    StickCP2.Display.clear();
-    StickCP2.Display.setCursor(0, 0);
-    StickCP2.Display.printf("BAT: %dmv,", vol);
+    // int vol = StickCP2.Power.getBatteryVoltage();
+    // StickCP2.Display.clear();
+    // StickCP2.Display.setCursor(0, 0);
+    // StickCP2.Display.printf("BAT: %dmv,", vol);
+    // セマフォを取得
+    if (xSemaphoreTake(stackSemaphore, portMAX_DELAY) == pdTRUE) {
+        // スタックからメッセージを取得して表示
+        if (stackTop >= 0) {
+            for(int i=0; i <= stackTop; i++){
+                StickCP2.Display.println(messageStack[i]);
+            }
+            stackTop = -1; // スタックをクリア
+        }
+        // セマフォを解放
+        xSemaphoreGive(stackSemaphore);
+    }
     ESP_ERROR_CHECK(esp_wifi_set_channel(curChannel, WIFI_SECOND_CHAN_NONE));
     Serial.println("Changed channel:" + String(curChannel));	
     delay(1000);
