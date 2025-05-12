@@ -3,36 +3,44 @@
  * @author igapon (igapon@gmail.com)
  * @brief M5StickCPlus2 get drone remote id
  * @version 0.1
- * @date 2023-12-12
+ * @date 2025-06-33
  * @Hardwares: M5StickCPlus2
  * @Platform Version: Arduino M5Stack Board Manager v2.1.4
  * @Dependent Library:
  * M5GFX: https://github.com/m5stack/M5GFX
  * M5Unified: https://github.com/m5stack/M5Unified
  * M5StickCPlus2: https://github.com/m5stack/M5StickCPlus2
+ * 参考: https://lang-ship.com/blog/work/esp32-wifi-sniffer/
+ * 参考: https://qiita.com/kobatan/items/dac5d4696d631003e037
+ * 参考: https://interface.cqpub.co.jp/wp-content/uploads/if2402_041.pdf
  */
 #include "M5StickCPlus2.h"
 #include <Arduino.h>
 #include <string.h>
-#include <WiFi.h>
 #include "esp_wifi.h"
 #include "esp_mac.h"
+#include "esp_event_loop.h"
+#include "nvs_flash.h"
 
-#define SERIAL_NO	"XYZ09876543210"		// RIDの製造番号
-#define REG_SYMBOL	"JA.JU0987654321"		// 無人航空機の登録記号
-#define maxCh 14				 // max Channel -> US = 11, EU = 13, Japan = 14
-#define MAX_STACK_SIZE 10  // スタックの最大サイズ
-#define MAX_MESSAGE_LENGTH 100 // メッセージの最大長
+#define SERIAL_NO	"XYZ09876543210"	// RIDの製造番号
+#define REG_SYMBOL	"JA.JU0987654321"	// 無人航空機の登録記号
+#define WIFI_CHANNEL_SWITCH_INTERVAL  (500)
+#define WIFI_CHANNEL_MAX               (14)
+#define MAX_STACK_SIZE 10       // スタックの最大サイズ
+#define MAX_MESSAGE_LENGTH 100  // メッセージの最大長
 
-int curChannel = 1;
+// メモリ描画領域表示（スプライト）のインスタンスを作成(必要に応じて複数作成)
+// M5Canvas canvas(&M5.Lcd);  // &M5.Lcd を &StickCP2.Display と書いても同じ
+static wifi_country_t wifi_country = {.cc = "JP", .schan = 1, .nchan = 14};  // Most recent esp32 library struct
+int channel = 1;
 char messageStack[MAX_STACK_SIZE][MAX_MESSAGE_LENGTH]; // メッセージスタック
 int stackTop = -1; // スタックポインタ
 SemaphoreHandle_t stackSemaphore; // スタックアクセス用のセマフォ
 
 #pragma pack(push,1)			// データを詰めて配置
 typedef struct{
-	uint8_t ver:4;			// bit[3-0] Protocol version
-	uint8_t type:4;			// bit[7-4] message type
+	uint8_t ver:4;			    // bit[3-0] Protocol version
+	uint8_t type:4;			    // bit[7-4] message type
 } Message_head;
 
 typedef struct{
@@ -60,22 +68,22 @@ typedef struct{
 } element_head;
 
 typedef struct{
-	uint8_t speed_mul:1;	// bit[0] 0:x0.25, 1:x0.75
-	uint8_t dir_seg:1;		// bit[1] 0:<180, 1:>=180
-	uint8_t heght_type:1;	// bit[2] 0:Abave Takeoff, 1:AGL
-	uint8_t resv:1;			// bit[3] reserved
-	uint8_t status:4;		// bit[7-4] status
+	uint8_t speed_mul:1;	    // bit[0] 0:x0.25, 1:x0.75
+	uint8_t dir_seg:1;		    // bit[1] 0:<180, 1:>=180
+	uint8_t heght_type:1;	    // bit[2] 0:Abave Takeoff, 1:AGL
+	uint8_t resv:1;			    // bit[3] reserved
+	uint8_t status:4;		    // bit[7-4] status
 } Status_flag;
 
 typedef struct{
-	uint8_t horizontal:4;	// bit[3-0]
-	uint8_t vetical:4;		// bit[7-4]
-} H_V_accuracy;				// 水平垂直の正確さ
+	uint8_t horizontal:4;	    // bit[3-0]
+	uint8_t vetical:4;		    // bit[7-4]
+} H_V_accuracy;				    // 水平垂直の正確さ
 
 typedef struct{
-	uint8_t speed:4;		// bit[3-0]
-	uint8_t baro:4;			// bit[7-4]
-}B_S_accuracy;				// 速度方位の正確さ
+	uint8_t speed:4;		    // bit[3-0]
+	uint8_t baro:4;			    // bit[7-4]
+}B_S_accuracy;				    // 速度方位の正確さ
 
 typedef struct
 {
@@ -134,62 +142,41 @@ const char *get_packet_name(wifi_promiscuous_pkt_type_t type)
   }
 }
 
-bool startsWith(const char* str, const char* prefix) {
-    if (str == nullptr || prefix == nullptr) {
-        return false; // NULLポインタチェック
-    }
-    // prefixの長さがstrの長さ以上であればfalse
-    if (strlen(prefix) > strlen(str)) {
-        return false;
-    }
-    return strncmp(str, prefix, strlen(prefix)) == 0;
+esp_err_t event_handler(void *ctx, system_event_t *event) {
+  return ESP_OK;
 }
 
-void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
+void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
 	int len,i;
 	char ssid[MAX_SSID_LEN+1];
     wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t*)buf;
 	wifi_mac_hdr *mac =(wifi_mac_hdr *)ppkt->payload;
-	element_head *e =(element_head *)mac->payload;
-	vendor_ie_data_t *vi;
 	if (mac->fctl != 0x0080){  // Wifiビーコンの場合は、Typeが管理フレーム（０）で、Sub Typeが（８）
         return;
     }
-	// printf("PACKET TYPE = [ %s ], CHAN = %d, RSSI = %d\n", get_packet_name(type), ppkt->rx_ctrl.channel, ppkt->rx_ctrl.rssi);
-	// printf("Frame Ctl = %04X\n",mac->fctl);
-	// printf("Duration = %04X\n",mac->duration);
-	// printf("DA    = %02X:%02X:%02X:%02X:%02X:%02X\n", mac->da[0],mac->da[1],mac->da[2],mac->da[3],mac->da[4],mac->da[5]);
-	// printf("SA    = %02X:%02X:%02X:%02X:%02X:%02X\n",	mac->sa[0],mac->sa[1],mac->sa[2],mac->sa[3],mac->sa[4],mac->sa[5]);
-	// printf("BSSID = %02X:%02X:%02X:%02X:%02X:%02X\n", mac->bssid[0],mac->bssid[1],mac->bssid[2],mac->bssid[3],mac->bssid[4],mac->bssid[5]);
-	// printf("Seq No. = %d, Frg No. = %d\n", mac->seqctl.sequence_num, mac->seqctl.fragment_num);
-	// printf("Timestamp = %d\n",mac->timestamp);
-	// printf("Interval = %dTU\n", mac->interval);	
-	// printf("Cpability = %04X\n", mac->cap);		
+	element_head *e =(element_head *)mac->payload;
+	vendor_ie_data_t *vi;
 	len = ppkt->rx_ctrl.sig_len - sizeof(wifi_mac_hdr);
-	// printf("Payload length = %d\n", len);
 	if(len <= 0) return;
 	while(len > 4){
-		// printf("eid = %3d len = %3d ", e->id, e->len);
 		switch (e->id) {
 		case 0: // SSID
 			if (e->len > MAX_SSID_LEN) break;
-			if (strncmp((char*)e->payload, "RID-", 4) != 0){  // SSIDの先頭文字がRID-で無ければ処理終了
+			strncpy(ssid, (char*)e->payload, e->len);
+			if (strncmp(ssid, "RID-", 4) != 0){  // SSIDの先頭文字がRID-で無ければ処理終了
 			    return;
 			}
-			strncpy(ssid, (char*)e->payload, e->len);
 			ssid[e->len] = 0;
-			printf("RSSI=%3d,Ch=%2d,PACKET TYPE=%s,SSID=%s\n", ppkt->rx_ctrl.rssi, ppkt->rx_ctrl.channel, get_packet_name(type), ssid);
+//			printf("RSSI=%3d,Ch=%2d,PACKET TYPE=%s,SSID=%s\n", ppkt->rx_ctrl.rssi, ppkt->rx_ctrl.channel, get_packet_name(type), ssid);
 			break;
 		case 221:	// Vender Specific
 			vi = (vendor_ie_data_t *)e;
-            if ((vi->vendor_oui[0] != 0xFA) || (vi->vendor_oui[1] != 0x0B) || (vi->vendor_oui[2] != 0xBC) || (vi->vendor_oui_type != 0x0D)){  // OUIとOUI Typeの値は、RIDの場合、固定の数値
+            if ((vi->vendor_oui[0] != 0xFA)
+             || (vi->vendor_oui[1] != 0x0B)
+             || (vi->vendor_oui[2] != 0xBC)
+             || (vi->vendor_oui_type != 0x0D)){  // OUIとOUI Typeの値は、RIDの場合、固定の数値
                 return;
             }
-			// printf("Vendor OUI = %02X:%02X:%02X OUI Type = %2d data = ",vi->vendor_oui[0],vi->vendor_oui[1],vi->vendor_oui[2],vi->vendor_oui_type);
-// 			for(i=0; i < vi->length; i++){
-// 				printf("%02X ",vi->payload[i]);
-// 			}
-// 			printf("\n");
 			{
 			    RID_Data *data = (RID_Data *)vi->payload;
 			    char message[MAX_MESSAGE_LENGTH];
@@ -211,130 +198,60 @@ void rx_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
                     // セマフォを解放
                     xSemaphoreGive(stackSemaphore);
                 }
-                printf("serial=%s,reg=%s,lat=%d,lng=%d,p-alt=%d,g-alt=%d\n",
-                 data->serial_no, data->reg_no, data->lat, data->lng, data->Pressur_Altitude, data->Geodetic_Altitude);
+//                printf("serial=%s,reg=%s,lat=%d,lng=%d,p-alt=%d,g-alt=%d\n",
+//                 data->serial_no, data->reg_no, data->lat, data->lng, data->Pressur_Altitude, data->Geodetic_Altitude);
 			}
 			break;
         default:
             return;  // DJIドローンは、[SSID]と[Vendor Specific]の２つだけ
-            printf("data = ");
-            for(i=0;i < e->len; i++){
-				printf("%02X ", e->payload[i]);
-			}
-			printf("\n");
-			break;
 		}
 		int dlen = 2 + e->len;
 		len -= dlen;
 		e = (element_head *)((uint8_t *)e + dlen);
 	}
-	// uint8_t *fcs = (uint8_t *)e;
-	// printf("FCS = %02X %02X %02X %02X\n\n",fcs[0],fcs[1],fcs[2],fcs[3]);
-	WiFi.scanDelete();	// 最後のスキャン結果をメモリから削除します。
 }
 
-// メモリ描画領域表示（スプライト）のインスタンスを作成(必要に応じて複数作成)
-// M5Canvas canvas(&M5.Lcd);  // &M5.Lcd を &StickCP2.Display と書いても同じ
-
-void setup()
-{
+void display_init(void) {
     auto cfg = M5.config();
     StickCP2.begin(cfg);
     StickCP2.Display.fillScreen(BLACK); // 背景色
-    // StickCP2.Display.setRotation(1);  // 画面向き設定（USB位置基準 0：下/ 1：右/ 2：上/ 3：左）
     StickCP2.Display.setTextColor(GREEN);  //(文字色, 背景)
-    // StickCP2.Display.setTextDatum(middle_center);
-    // StickCP2.Display.setTextWrap(false);  // 改行をしない（画面をはみ出す時自動改行する場合はtrue。書かないとtrue）
-    // canvas.createSprite(M5.Lcd.width(), M5.Lcd.height()); // lcdサイズ（メモリ描画領域）設定（画面サイズに設定）
-    // メモリ描画領域を座標を指定して一括表示（スプライト）
-    // canvas.pushSprite(&M5.Lcd, 0, 0);  // (0, 0)座標に一括表示実行
     StickCP2.Display.setFont(&fonts::Font0);
     StickCP2.Display.setTextSize(1);
-    // Serial.begin(115200);
-    WiFi.mode(WIFI_STA);
-    // WiFi.disconnect();
-    esp_wifi_set_promiscuous(true);		        // プロミスキャスモード（無差別モード）に設定する。
-    esp_wifi_set_promiscuous_rx_cb(&rx_callback);	// 受信したときの割り込み先設定
-    esp_wifi_set_channel(curChannel, WIFI_SECOND_CHAN_NONE);
-    delay(100);
-    stackSemaphore = xSemaphoreCreateMutex();
     StickCP2.Display.setCursor(0, 0);
-    StickCP2.Display.println("Setup done");
+}
+
+void wifi_sniffer_init(void) {
+  nvs_flash_init();
+  tcpip_adapter_init();
+  ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
+  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+  ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
+  ESP_ERROR_CHECK( esp_wifi_set_country(&wifi_country) ); /* set country for channel range [1, 13] */
+  ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+  ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_NULL) );
+  ESP_ERROR_CHECK( esp_wifi_start() );
+  wifi_promiscuous_filter_t filter = {.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT};
+  ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&filter));
+  ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+  ESP_ERROR_CHECK(esp_wifi_set_promiscuous_rx_cb(&wifi_sniffer_packet_handler));
+}
+
+void setup()
+{
+//     Serial.begin(115200);
+//     delay(10)
+    display_init();
+    wifi_sniffer_init();
+    stackSemaphore = xSemaphoreCreateMutex();
 }
 
 void loop()
 {
-    // int n = WiFi.scanNetworks();
-    // int vol = StickCP2.Power.getBatteryVoltage();
-    // StickCP2.Display.clear();
-    // StickCP2.Display.setCursor(0, 0);
-    // StickCP2.Display.printf("BAT: %dmv,", vol);
-    // if (n == 0) {
-    //     StickCP2.Display.println("no networks found");
-    // } else {
-    //     StickCP2.Display.print(n);
-    //     StickCP2.Display.println(" networks found");
-    //     // StickCP2.Display.println("No|RSSI|CH|Encryption|SSID|");
-    //     StickCP2.Display.println("|RSSI|CH|Encrypt|SSID|");
-    //     for (int i = 0; i < n; ++i) {
-    //         if (i >= 6) {
-    //             break;
-    //         }
-    //         // Print SSID and RSSI for each network found
-    //         // StickCP2.Display.printf("%2d",i + 1);
-    //         // StickCP2.Display.print("|");
-    //         StickCP2.Display.printf("%4d", WiFi.RSSI(i));
-    //         StickCP2.Display.print("|");
-    //         StickCP2.Display.printf("%2d", WiFi.channel(i));
-    //         StickCP2.Display.print("|");
-    //         switch (WiFi.encryptionType(i))
-    //         {
-    //         case WIFI_AUTH_OPEN:
-    //             StickCP2.Display.print("open");
-    //             break;
-    //         case WIFI_AUTH_WEP:
-    //             StickCP2.Display.print("WEP");
-    //             break;
-    //         case WIFI_AUTH_WPA_PSK:
-    //             StickCP2.Display.print("WPA");
-    //             break;
-    //         case WIFI_AUTH_WPA2_PSK:
-    //             StickCP2.Display.print("WPA2");
-    //             break;
-    //         case WIFI_AUTH_WPA_WPA2_PSK:
-    //             StickCP2.Display.print("WPA+WPA2");
-    //             break;
-    //         case WIFI_AUTH_WPA2_ENTERPRISE:
-    //             StickCP2.Display.print("WPA2-EAP");
-    //             break;
-    //         case WIFI_AUTH_WPA3_PSK:
-    //             StickCP2.Display.print("WPA3");
-    //             break;
-    //         case WIFI_AUTH_WPA2_WPA3_PSK:
-    //             StickCP2.Display.print("WPA2+WPA3");
-    //             break;
-    //         case WIFI_AUTH_WAPI_PSK:
-    //             StickCP2.Display.print("WAPI");
-    //             break;
-    //         default:
-    //             StickCP2.Display.print("unknown");
-    //         }
-    //         StickCP2.Display.print("|");
-    //         // StickCP2.Display.printf("%-32.32s", WiFi.SSID(i).c_str());
-    //         StickCP2.Display.printf("%s", WiFi.SSID(i).c_str());
-    //         StickCP2.Display.println("");
-    //     }
-    // }
-    // // StickCP2.Display.println("");
-    // // Delete the scan result to free memory for code below.
-    // WiFi.scanDelete();
-    // // Wait a bit before scanning again.
-    // delay(5000);
-    
-    // int vol = StickCP2.Power.getBatteryVoltage();
-    // StickCP2.Display.clear();
-    // StickCP2.Display.setCursor(0, 0);
-    // StickCP2.Display.printf("BAT: %dmv,", vol);
+    delay(WIFI_CHANNEL_SWITCH_INTERVAL);
+    ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE));
+//    Serial.println("Changed channel:" + String(channel));
+    channel = (channel % WIFI_CHANNEL_MAX) + 1;
     // セマフォを取得
     if (xSemaphoreTake(stackSemaphore, portMAX_DELAY) == pdTRUE) {
         // スタックからメッセージを取得して表示
@@ -347,9 +264,4 @@ void loop()
         // セマフォを解放
         xSemaphoreGive(stackSemaphore);
     }
-    ESP_ERROR_CHECK(esp_wifi_set_channel(curChannel, WIFI_SECOND_CHAN_NONE));
-    Serial.println("Changed channel:" + String(curChannel));	
-    delay(1000);
-    curChannel++;	
-    if(curChannel > maxCh) curChannel = 1;
 }
