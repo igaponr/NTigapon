@@ -218,6 +218,8 @@ void display_init(void) {
     StickCP2.Display.setTextColor(GREEN);  //(文字色, 背景)
     StickCP2.Display.setFont(&fonts::Font0);
     StickCP2.Display.setTextSize(1);
+    StickCP2.Display.setRotation(1);      // 画面向き設定（0～3で設定、4～7は反転)※初期値は1
+    StickCP2.Display.setTextWrap(true);  // 画面端での改行の有無（true:有り[初期値], false:無し）※print関数のみ有効
     StickCP2.Display.setCursor(0, 0);
 }
 
