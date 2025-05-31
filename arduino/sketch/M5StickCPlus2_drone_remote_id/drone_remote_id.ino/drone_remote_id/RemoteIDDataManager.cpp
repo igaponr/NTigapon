@@ -1,13 +1,4 @@
-// RemoteIDDataManager.cpp (実装ファイル)
-// ヘッダーでインクルードガードしているので、ここでは#include "RemoteIDDataManager.h"は必須ではないが、
-// 分割コンパイルする場合は必要。Arduino IDEでは.inoファイルに直接書くか、タブで追加する。
-
-// C++17未満では、static const メンバー変数の定義がクラス外で必要になることがあります。
-// ヘッダーファイル内で初期化済みであれば、この行は不要な場合もあります。
-// (Arduino環境のコンパイラバージョンによります)
-// const size_t RemoteIDDataManager::TARGET_RID_MAX_DATA; (ヘッダで初期化済み)
-// const size_t RemoteIDDataManager::OTHER_RID_MAX_DATA; (ヘッダで初期化済み)
-
+#include "RemoteIDDataManager.h"
 
 RemoteIDDataManager::RemoteIDDataManager(const String& targetRid)
     : _target_rid_value(targetRid) {
@@ -71,14 +62,12 @@ std::vector<std::pair<int, String>> RemoteIDDataManager::getSortedRIDsByRSSI() c
     if (_data_store.empty()) {
         return sorted_rids_list;
     }
-
     for (const auto& pair : _data_store) {
         if (!pair.second.entries.empty()) {
             // RIDDataContainerにキャッシュされた最新RSSIを使用
             sorted_rids_list.push_back({pair.second.latest_rssi, pair.first});
         }
     }
-
     // RSSIの降順でソート。RSSIが同じ場合はRID文字列で昇順ソート（結果の安定性のため）
     std::sort(sorted_rids_list.begin(), sorted_rids_list.end(), [](const auto& a, const auto& b) {
         if (a.first != b.first) {
@@ -93,13 +82,10 @@ std::vector<RemoteIDEntry> RemoteIDDataManager::getDataByIndex(int index) const 
     if (index < 0) {
         return {}; // 不正なインデックス
     }
-
     std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
-
     if (index >= sorted_rids.size()) {
         return {}; // インデックス範囲外
     }
-
     String selected_rid = sorted_rids[index].second;
     return getAllDataForRID(selected_rid);
 }
@@ -108,13 +94,10 @@ String RemoteIDDataManager::getRIDStringByIndex(int index) const {
     if (index < 0) {
         return ""; // 不正なインデックス
     }
-
     std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
-
     if (index >= sorted_rids.size()) {
         return ""; // インデックス範囲外
     }
-    
     return sorted_rids[index].second;
 }
 
