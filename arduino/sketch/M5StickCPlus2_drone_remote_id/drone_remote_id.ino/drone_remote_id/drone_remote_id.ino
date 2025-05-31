@@ -34,6 +34,8 @@ RemoteIDDataManager dataManager(""); // グローバル変数としてインス�
 static wifi_country_t wifi_country = {.cc = "JP", .schan = 1, .nchan = 14};  // Most recent esp32 library struct
 int channel = 1;
 SemaphoreHandle_t dataManagerSemaphore; // dataManagerアクセス用のセマフォ
+const uint8_t ASTM_OUI[] = {0xFA, 0x0B, 0xBC};
+const uint8_t ASTM_OUI_TYPE_RID = 0x0D;
 
 #pragma pack(push,1)			// データを詰めて配置
 typedef struct{
@@ -190,10 +192,8 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
 	while(remaining_len > sizeof(element_head)){
         if (current_e->id == 221) { // Vendor Specific Element ID
             vendor_ie_data_t *vi = (vendor_ie_data_t *)current_e;
-            if ((vi->vendor_oui[0] == 0xFA) &&
-             (vi->vendor_oui[1] == 0x0B) &&
-             (vi->vendor_oui[2] == 0xBC) &&
-             (vi->vendor_oui_type == 0x0D)) { // ASTM OUI and RID type
+            if (memcmp(vi->vendor_oui, ASTM_OUI, sizeof(ASTM_OUI)) == 0 &&
+                vi->vendor_oui_type == ASTM_OUI_TYPE_RID) { // ASTM OUI and RID type
                 RID_Data *data = (RID_Data *)vi->payload;
                 // データをRemoteIDDataManagerに追加
                 // RIDとしては、ペイロード内のserial_noを使用するのが一般的
