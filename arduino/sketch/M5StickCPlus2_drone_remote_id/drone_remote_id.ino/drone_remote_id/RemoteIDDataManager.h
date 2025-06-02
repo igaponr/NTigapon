@@ -13,15 +13,17 @@
 struct RemoteIDEntry {
     int rssi;
     time_t timestamp; // UNIXタイムスタンプ (秒)
+    uint64_t beaconTimestamp; // ビーコンフレームのタイムスタンプ (マイクロ秒)
+    int channel;            // 受信したWi-Fiチャンネル
     float latitude;
     float longitude;
     float pressureAltitude;
     float gpsAltitude;
     // デフォルトコンストラクタ
-    RemoteIDEntry() : rssi(0), timestamp(0), latitude(0.0f), longitude(0.0f), pressureAltitude(0.0f), gpsAltitude(0.0f) {}
+    RemoteIDEntry() : rssi(0), timestamp(0), beaconTimestamp(0), channel(0), latitude(0.0f), longitude(0.0f), pressureAltitude(0.0f), gpsAltitude(0.0f) {}
     // パラメータ付きコンストラクタ
-    RemoteIDEntry(int r, time_t ts, float lat, float lon, float pa, float ga)
-        : rssi(r), timestamp(ts), latitude(lat), longitude(lon), pressureAltitude(pa), gpsAltitude(ga) {}
+    RemoteIDEntry(int r, time_t ts, uint64_t bTs, int ch, float lat, float lon, float pa, float ga)
+        : rssi(r), timestamp(ts), beaconTimestamp(bTs), channel(ch), latitude(lat), longitude(lon), pressureAltitude(pa), gpsAltitude(ga) {}
 };
 
 class RemoteIDDataManager {
@@ -29,7 +31,7 @@ public:
     // コンストラクタ: target_rid (特別扱いするRID) を指定
     RemoteIDDataManager(const String& targetRid);
     // データ追加メソッド
-    void addData(const String& rid, int rssi, time_t timestamp, float lat, float lon, float pAlt, float gAlt);
+    void addData(const String& rid, int rssi, time_t timestamp, uint64_t beaconTimestamp, int channel, float lat, float lon, float pAlt, float gAlt);
     // 指定時刻(currentTime)から過去1分以内にデータ記録があるRIDのリストを返す
     std::vector<String> getRIDsWithDataInLastMinute(time_t currentTime) const;
     // 指定RIDのすべてのデータを時系列順(古いものから新しいもの)で返す

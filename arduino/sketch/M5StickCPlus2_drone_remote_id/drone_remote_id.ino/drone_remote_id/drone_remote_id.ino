@@ -210,12 +210,16 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
                             rid_from_payload,
                             ppkt->rx_ctrl.rssi,
                             current_time_sec,
+                            mac_hdr->timestamp,
+                            channel,
                             latitude,
                             longitude,
                             pressure_alt,
                             gps_alt
                         );
                         xSemaphoreGive(dataManagerSemaphore);
+                        // M5.Log.printf("RID: %s, Ch: %d, RSSI: %d, BcnTS: %llu, Lat: %.4f, Lon: %.4f, PAlt: %.1f, GAlt: %.1f\n",
+                        //    rid_from_payload.c_str(), channel, ppkt->rx_ctrl.rssi, mac_hdr->timestamp, latitude, longitude, pressure_alt, gps_alt);
                     } else {
                         M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in sniffer_cb\n");
                     }
@@ -358,7 +362,7 @@ void loop()
     }
     dc.println(separator);
     // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
-    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / 3 : 0;
+    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / 4 : 0;
     int rids_to_show_this_loop = min(MAX_RIDS_TO_DISPLAY, displayable_rids_on_screen);
     if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
         std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
@@ -367,7 +371,7 @@ void loop()
         if (rid_count_available > 0) {
             for (int i = 0; i < rid_count_available && displayed_count < rids_to_show_this_loop; ++i) {
                  // 次のRID情報(3行)が現在のカーソル位置から画面に収まるかチェック
-                if (dc.getPrintCursorRow() + 3 > dc.getRows()) {
+                if (dc.getPrintCursorRow() + 4 > dc.getRows()) {
                     break; 
                 }
                 String current_rid_str = sorted_rids_info[i].second;
@@ -377,13 +381,13 @@ void loop()
                         char line_buf[128]; // 各行のバッファ
                         // Display RID (RSSI) - 画面幅に応じてRID文字列を切り詰める
                         String rid_to_display = current_rid_str;
-                        // " (RSSI)" のために約6文字消費 + マージン
-                        int max_rid_len = dc.getCols() - 7; 
-                        if (max_rid_len < 1) max_rid_len = 1; // 最低1文字
+                        // " (RSSI)" のために約13文字消費 + マージン
+                        int max_rid_len = dc.getCols() - 14;
+                        if (max_rid_len < 1) max_rid_len = 1;
                         if (rid_to_display.length() > (unsigned int)max_rid_len) {
                             rid_to_display = rid_to_display.substring(0, max_rid_len);
                         }
-                        snprintf(line_buf, sizeof(line_buf), "%s (%d)", rid_to_display.c_str(), latest_entry.rssi);
+                        snprintf(line_buf, sizeof(line_buf), "%s (%d,Ch:%d)", rid_to_display.c_str(), latest_entry.rssi, latest_entry.channel);
                         dc.println(line_buf);
                         // Display Lat/Lon
                         snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
@@ -397,7 +401,10 @@ void loop()
                         }
                         snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
                         dc.println(line_buf);
-                        
+                        snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03lu.%06lu",
+                                 (unsigned long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000), // 秒の下3桁
+                                 (unsigned long)(latest_entry.beaconTimestamp % 1000000ULL));       // マイクロ秒6桁
+                        dc.println(line_buf);
                         displayed_count++;
                     }
                 }

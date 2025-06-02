@@ -5,8 +5,8 @@ RemoteIDDataManager::RemoteIDDataManager(const String& targetRid)
     // 必要であれば初期化処理
 }
 
-void RemoteIDDataManager::addData(const String& rid, int rssi, time_t timestamp, float lat, float lon, float pAlt, float gAlt) {
-    RemoteIDEntry new_entry(rssi, timestamp, lat, lon, pAlt, gAlt);
+void RemoteIDDataManager::addData(const String& rid, int rssi, time_t timestamp, uint64_t beaconTimestamp, int channel, float lat, float lon, float pAlt, float gAlt) {
+    RemoteIDEntry new_entry(rssi, timestamp, beaconTimestamp, channel, lat, lon, pAlt, gAlt);
     auto it = _data_store.find(rid);
     if (it == _data_store.end()) {
         // 新しいRIDの場合、コンテナを作成してマップに追加
