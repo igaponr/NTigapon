@@ -36,6 +36,8 @@ int channel = 1;
 SemaphoreHandle_t dataManagerSemaphore;
 const uint8_t ASTM_OUI[] = {0xFA, 0x0B, 0xBC};
 const uint8_t ASTM_OUI_TYPE_RID = 0x0D;
+const int MAX_RIDS_TO_DISPLAY = 4; // 画面に表示するRIDの最大数
+const int LINES_PER_RID_ENTRY = 5;
 
 #pragma pack(push,1)
 typedef struct{
@@ -205,6 +207,12 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
                     float longitude = static_cast<float>(data->lng) * 1e-7f;
                     float pressure_alt = static_cast<float>(data->Pressur_Altitude) * 0.1f;
                     float gps_alt = static_cast<float>(data->Geodetic_Altitude) * 0.1f;
+                    // 登録記号の取得
+                    char reg_no_buf[sizeof(data->reg_no) + 1];
+                    memcpy(reg_no_buf, data->reg_no, sizeof(data->reg_no));
+                    reg_no_buf[sizeof(data->reg_no)] = '\0'; // ヌル終端
+                    String registration_number_from_payload = String(reg_no_buf);
+                    registration_number_from_payload.trim();
                     if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
                         dataManager.addData(
                             rid_from_payload,
@@ -212,6 +220,7 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
                             current_time_sec,
                             mac_hdr->timestamp,
                             channel,
+                            registration_number_from_payload,
                             latitude,
                             longitude,
                             pressure_alt,
@@ -334,8 +343,6 @@ void setup()
     delay(1000); // 少し表示時間
 }
 
-const int MAX_RIDS_TO_DISPLAY = 4; // 画面に表示するRIDの最大数
-
 void loop()
 {
     M5.update();
@@ -362,7 +369,7 @@ void loop()
     }
     dc.println(separator);
     // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
-    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / 4 : 0;
+    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / LINES_PER_RID_ENTRY : 0;
     int rids_to_show_this_loop = min(MAX_RIDS_TO_DISPLAY, displayable_rids_on_screen);
     if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
         std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
@@ -370,8 +377,8 @@ void loop()
         int displayed_count = 0;
         if (rid_count_available > 0) {
             for (int i = 0; i < rid_count_available && displayed_count < rids_to_show_this_loop; ++i) {
-                 // 次のRID情報(3行)が現在のカーソル位置から画面に収まるかチェック
-                if (dc.getPrintCursorRow() + 4 > dc.getRows()) {
+                // 次のRID情報が現在のカーソル位置から画面に収まるかチェック
+                if (dc.getPrintCursorRow() + LINES_PER_RID_ENTRY > dc.getRows()) {
                     break; 
                 }
                 String current_rid_str = sorted_rids_info[i].second;
@@ -389,6 +396,20 @@ void loop()
                         }
                         snprintf(line_buf, sizeof(line_buf), "%s (%d,Ch:%d)", rid_to_display.c_str(), latest_entry.rssi, latest_entry.channel);
                         dc.println(line_buf);
+                        if (!latest_entry.registrationNo.isEmpty()) { // 登録記号があれば表示
+                            String reg_no_to_display = latest_entry.registrationNo;
+                            // 画面幅に応じて登録記号を切り詰める (例: 最大表示文字数 getCols())
+                            if (reg_no_to_display.length() > (unsigned int)dc.getCols()) {
+                                reg_no_to_display = reg_no_to_display.substring(0, dc.getCols());
+                            }
+                            snprintf(line_buf, sizeof(line_buf), "Reg:%.*s", dc.getCols() - 4, reg_no_to_display.c_str()); // "Reg:"の分を引く
+                            // または単純に println
+                            // dc.print("Reg:"); dc.println(reg_no_to_display);
+                            dc.println(line_buf);
+                        } else {
+                            // 登録記号がない場合は空行をprintlnするか、何も表示しないか選べる
+                            // dc.println("Reg:N/A"); // 例
+                        }
                         // Display Lat/Lon
                         snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
                         dc.println(line_buf);
