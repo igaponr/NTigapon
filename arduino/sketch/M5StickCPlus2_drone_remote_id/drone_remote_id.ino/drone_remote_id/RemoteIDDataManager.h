@@ -1,4 +1,3 @@
-// RemoteIDDataManager.h (ヘッダーファイル)
 #ifndef REMOTE_ID_DATA_MANAGER_H
 #define REMOTE_ID_DATA_MANAGER_H
 
@@ -7,8 +6,8 @@
 #include <deque>
 #include <map>
 #include <algorithm> // std::sort
-#include <limits.h>  // INT_MIN (古いコンパイラ用、C++11以降は<climits>)
-#include <time.h>    // time_t
+#include <climits>   // INT_MIN (C++11以降)
+#include <ctime>     // time_t (C++ style)
 
 // 個々のデータエントリを表す構造体
 struct RemoteIDEntry {
@@ -51,6 +50,8 @@ public:
     void clearAllData();
     // 特定のRIDのデータをクリア
     void clearDataForRID(const String& rid);
+    // RSSI降順でソートされたRIDのリスト {latest_rssi, rid_string} を取得するヘルパー
+    std::vector<std::pair<int, String>> getSortedRIDsByRSSI() const;
 
 private:
     // RIDごとのデータと設定を保持する内部構造体
@@ -72,18 +73,16 @@ private:
             }
         }
     };
-
     String _target_rid_value; // 特別扱いするRID
     static const size_t TARGET_RID_MAX_DATA = 3600; // target_ridの最大保存数
     static const size_t OTHER_RID_MAX_DATA = 2;     // target_rid以外の最大保存数
+    static const time_t ONE_MINUTE_IN_SECONDS = 60; // 1分の秒数
     // RID文字列をキーとして、RIDDataContainerを値とするマップ
     std::map<String, RIDDataContainer> _data_store;
     // target_ridかどうかを判定するヘルパー
     bool isTargetRID(const String& rid) const {
         return rid == _target_rid_value;
     }
-    // RSSI降順でソートされたRIDのリスト {latest_rssi, rid_string} を取得するヘルパー
-    std::vector<std::pair<int, String>> getSortedRIDsByRSSI() const;
 };
 
 #endif // REMOTE_ID_DATA_MANAGER_H

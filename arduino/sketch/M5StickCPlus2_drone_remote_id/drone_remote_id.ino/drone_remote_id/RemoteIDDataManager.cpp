@@ -7,7 +7,6 @@ RemoteIDDataManager::RemoteIDDataManager(const String& targetRid)
 
 void RemoteIDDataManager::addData(const String& rid, int rssi, time_t timestamp, float lat, float lon, float pAlt, float gAlt) {
     RemoteIDEntry new_entry(rssi, timestamp, lat, lon, pAlt, gAlt);
-
     auto it = _data_store.find(rid);
     if (it == _data_store.end()) {
         // 新しいRIDの場合、コンテナを作成してマップに追加
@@ -23,19 +22,22 @@ void RemoteIDDataManager::addData(const String& rid, int rssi, time_t timestamp,
 
 std::vector<String> RemoteIDDataManager::getRIDsWithDataInLastMinute(time_t currentTime) const {
     std::vector<String> result_rids;
-    time_t one_minute_ago = currentTime - 60; // 1分前の時刻
-
-    for (const auto& pair : _data_store) { // pairは {const String& rid, const RIDDataContainer& container}
+    const time_t one_minute_ago = currentTime - ONE_MINUTE_IN_SECONDS;
+    for (const auto& pair : _data_store) {
         const RIDDataContainer& container = pair.second;
-        if (!container.entries.empty()) {
-            // コンテナ内のいずれかのデータが1分以内かチェック
-            // entriesは時系列順なので、効率化のため末尾からチェックも可能だが、
-            // データ数が少ない(特にOTHER_RID)ため、全チェックでも大きな問題はない。
-            for (const auto& entry : container.entries) {
-                if (entry.timestamp >= one_minute_ago && entry.timestamp <= currentTime) {
-                    result_rids.push_back(pair.first); // 条件を満たすRIDを追加
-                    break; // このRIDは条件を満たしたので、次のRIDのチェックへ
-                }
+        if (container.entries.empty()) {
+            continue; // データがない場合はスキップ
+        }
+        // 最新のデータが1分より古いか、最古のデータが現在時刻より未来の場合、このコンテナは対象外の可能性が高い
+        // (リングバッファの特性上、latest_timestamp が one_minute_ago より前なら、他のエントリも古い)
+        if (container.latest_timestamp < one_minute_ago || container.entries.front().timestamp > currentTime) {
+            continue;
+        }
+        // 上記のフィルタを通過した場合、コンテナ内に該当期間のデータがあるか実際に確認する
+        for (const auto& entry : container.entries) {
+            if (entry.timestamp >= one_minute_ago && entry.timestamp <= currentTime) {
+                result_rids.push_back(pair.first);
+                break; // このRIDは条件を満たしたので、次のRIDのチェックへ
             }
         }
     }
@@ -49,14 +51,13 @@ std::vector<RemoteIDEntry> RemoteIDDataManager::getAllDataForRID(const String& r
         return std::vector<RemoteIDEntry>(it->second.entries.begin(), it->second.entries.end());
     }
     // 見つからない場合は空のベクターを返す
-    return {}; // C++11以降のリスト初期化、または std::vector<RemoteIDEntry>()
+    return {};
 }
 
 int RemoteIDDataManager::getRIDCount() const {
     return _data_store.size();
 }
 
-// ヘルパー関数: RSSI降順でソートされたRIDのリスト {latest_rssi, rid_string} を取得
 std::vector<std::pair<int, String>> RemoteIDDataManager::getSortedRIDsByRSSI() const {
     std::vector<std::pair<int, String>> sorted_rids_list;
     if (_data_store.empty()) {
@@ -64,11 +65,9 @@ std::vector<std::pair<int, String>> RemoteIDDataManager::getSortedRIDsByRSSI() c
     }
     for (const auto& pair : _data_store) {
         if (!pair.second.entries.empty()) {
-            // RIDDataContainerにキャッシュされた最新RSSIを使用
             sorted_rids_list.push_back({pair.second.latest_rssi, pair.first});
         }
     }
-    // RSSIの降順でソート。RSSIが同じ場合はRID文字列で昇順ソート（結果の安定性のため）
     std::sort(sorted_rids_list.begin(), sorted_rids_list.end(), [](const auto& a, const auto& b) {
         if (a.first != b.first) {
             return a.first > b.first; // RSSI降順
@@ -80,11 +79,11 @@ std::vector<std::pair<int, String>> RemoteIDDataManager::getSortedRIDsByRSSI() c
 
 std::vector<RemoteIDEntry> RemoteIDDataManager::getDataByIndex(int index) const {
     if (index < 0) {
-        return {}; // 不正なインデックス
+        return {};
     }
     std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
-    if (index >= sorted_rids.size()) {
-        return {}; // インデックス範囲外
+    if (static_cast<size_t>(index) >= sorted_rids.size()) {
+        return {};
     }
     String selected_rid = sorted_rids[index].second;
     return getAllDataForRID(selected_rid);
@@ -92,24 +91,23 @@ std::vector<RemoteIDEntry> RemoteIDDataManager::getDataByIndex(int index) const 
 
 String RemoteIDDataManager::getRIDStringByIndex(int index) const {
     if (index < 0) {
-        return ""; // 不正なインデックス
+        return "";
     }
     std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
-    if (index >= sorted_rids.size()) {
-        return ""; // インデックス範囲外
+    if (static_cast<size_t>(index) >= sorted_rids.size()) {
+        return "";
     }
     return sorted_rids[index].second;
 }
 
-// --- 使いやすさ向上のための追加メソッドの実装 ---
 bool RemoteIDDataManager::hasRID(const String& rid) const {
-    return _data_store.count(rid) > 0; // countは要素数を返す(0か1)
+    return _data_store.count(rid) > 0;
 }
 
 bool RemoteIDDataManager::getLatestEntryForRID(const String& rid, RemoteIDEntry& entry) const {
     auto it = _data_store.find(rid);
     if (it != _data_store.end() && !it->second.entries.empty()) {
-        entry = it->second.entries.back(); // dequeの最後の要素が最新
+        entry = it->second.entries.back();
         return true;
     }
     return false;
