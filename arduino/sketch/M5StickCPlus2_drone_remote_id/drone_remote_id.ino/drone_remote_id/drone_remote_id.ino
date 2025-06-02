@@ -2,8 +2,8 @@
  * @file drone_remote_id.ino
  * @author igapon (igapon@gmail.com)
  * @brief M5StickCPlus2 get drone remote id
- * @version 0.2 (Updated with improvements)
- * @date 2025-06-22 // 仮の日付更新
+ * @version 0.3 (Updated with M5CanvasTextDisplayController)
+ * @date 2025-06-22 // 仮の日付
  * @Hardwares: M5StickCPlus2
  * @Platform Version: Arduino M5Stack Board Manager v2.1.4
  * @Dependent Library:
@@ -14,7 +14,6 @@
  * 参考: https://qiita.com/kobatan/items/dac5d4696d631003e037
  * 参考: https://interface.cqpub.co.jp/wp-content/uploads/if2402_041.pdf
  */
-#include "M5StickCPlus2.h"
 #include <Arduino.h>
 #include <string.h>
 #include <ctime>
@@ -22,20 +21,22 @@
 #include "esp_mac.h"
 #include "nvs_flash.h"
 #include "RemoteIDDataManager.h"
+#include "M5CanvasTextDisplayController.h"
 
 #define WIFI_CHANNEL_SWITCH_INTERVAL  (500)
 #define WIFI_CHANNEL_MAX               (13) // 日本のWi-Fiチャンネルは通常1-13ch、14chは特殊。
+#define MAX_SSID_LEN                   (32) // SSIDの最大長 (esp_wifi_types.hより)
 
-// target_rid を空文字列にすると、特に優先するRIDはないという意味になります。
-// もし特定のシリアルナンバーを優先したい場合は、ここに指定します。
-RemoteIDDataManager dataManager(""); // グローバル変数としてインスタンス化など
+RemoteIDDataManager dataManager("");
+M5CanvasTextDisplayController* displayController_ptr = nullptr;
+
 static wifi_country_t wifi_country = {.cc = "JP", .schan = 1, .nchan = WIFI_CHANNEL_MAX};
 int channel = 1;
-SemaphoreHandle_t dataManagerSemaphore; // dataManagerアクセス用のセマフォ
+SemaphoreHandle_t dataManagerSemaphore;
 const uint8_t ASTM_OUI[] = {0xFA, 0x0B, 0xBC};
 const uint8_t ASTM_OUI_TYPE_RID = 0x0D;
 
-#pragma pack(push,1)			// データを詰めて配置
+#pragma pack(push,1)
 typedef struct{
 	uint8_t ver:4;			    // bit[3-0] Protocol version
 	uint8_t type:4;			    // bit[7-4] message type
@@ -128,15 +129,13 @@ typedef struct
 } RID_Data;
 #pragma pack(pop)
 
-
 void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
-    if (type != WIFI_PKT_MGMT) { // Only interested in management frames
+    if (type != WIFI_PKT_MGMT) {
         return;
     }
     wifi_promiscuous_pkt_t *ppkt = (wifi_promiscuous_pkt_t*)buf;
     wifi_mac_hdr_t *mac_hdr = (wifi_mac_hdr_t *)ppkt->payload;
-    // Check for Beacon frame (Type:0, SubType:8)
-    if (mac_hdr->fctl != 0x0080) {
+    if (mac_hdr->fctl != 0x0080) { // Beacon Frame (Type 0, SubType 8)
         return;
     }
     int payload_len = ppkt->rx_ctrl.sig_len - sizeof(wifi_mac_hdr_t);
@@ -158,13 +157,12 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
                 if (temp_ssid.startsWith("RID-")) {
                     is_rid_ssid_found = true;
                     if (temp_ssid.length() > 4) {
-                        rid_serial_from_ssid = temp_ssid.substring(4); // まず substring の結果を代入
-                        rid_serial_from_ssid.trim();                  // 次に trim() を呼び出して文字列自体を変更
+                        rid_serial_from_ssid = temp_ssid.substring(4);
+                        rid_serial_from_ssid.trim();
                     }
-                    // M5.Log.printf("Found RID SSID: %s, extracted S/N: %s\n", temp_ssid.c_str(), rid_serial_from_ssid.c_str());
                     break;
                 } else {
-                    return; // Not an RID-prefixed SSID, ignore this packet
+                    return;
                 }
             }
         }
@@ -174,33 +172,32 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
         current_element = (element_head_t *)((uint8_t *)current_element + element_total_len);
     }
     if (!is_rid_ssid_found) {
-        return; // No "RID-" SSID found
+        return;
     }
     // --- Pass 2: Find Vendor Specific IE for ASTM RID ---
-    current_element = element; // Reset to start of elements
+    current_element = element;
     current_remaining_len = remaining_len;
     while(current_remaining_len > sizeof(element_head_t)){
-        // Vendor Specific Element ID (221), OUI(3) + Type(1) = 4 bytes minimum for OUI header
-        const size_t min_vendor_ie_len = sizeof(ASTM_OUI) + 1; // OUI (3) + OUI Type (1)
+        const size_t min_vendor_ie_len = sizeof(ASTM_OUI) + 1;
         if (current_element->id == 221 && current_element->len >= min_vendor_ie_len) {
             const uint8_t* vendor_payload_ptr = (const uint8_t*)current_element->payload;
             if (memcmp(vendor_payload_ptr, ASTM_OUI, sizeof(ASTM_OUI)) == 0 &&
-                vendor_payload_ptr[sizeof(ASTM_OUI)] == ASTM_OUI_TYPE_RID) { // ASTM OUI and RID type
-                const size_t oui_header_size = sizeof(ASTM_OUI) + 1; // OUI + OUI Type
-                if (current_element->len >= oui_header_size + sizeof(RID_Data)) { // Check if enough data for RID_Data
+                vendor_payload_ptr[sizeof(ASTM_OUI)] == ASTM_OUI_TYPE_RID) {
+                const size_t oui_header_size = sizeof(ASTM_OUI) + 1;
+                if (current_element->len >= oui_header_size + sizeof(RID_Data)) {
                     RID_Data *data = (RID_Data *)(vendor_payload_ptr + oui_header_size);
                     char sn_buf[sizeof(data->serial_no) + 1];
                     memcpy(sn_buf, data->serial_no, sizeof(data->serial_no));
-                    sn_buf[sizeof(data->serial_no)] = '\0'; // Ensure null termination
+                    sn_buf[sizeof(data->serial_no)] = '\0';
                     String rid_from_payload_temp = String(sn_buf);
-                    rid_from_payload_temp.trim(); // trim() を適用
+                    rid_from_payload_temp.trim();
                     String rid_from_payload = rid_from_payload_temp;
                     if (rid_from_payload.isEmpty()) {
-                        rid_from_payload = rid_serial_from_ssid; // Use SSID's RID if payload's is empty
+                        rid_from_payload = rid_serial_from_ssid;
                     }
                     if (rid_from_payload.isEmpty()) {
                         M5.Log.printf("[WARNING] RID is empty after checking payload and SSID. Skipping.\n");
-                        return; // Still empty, skip
+                        return;
                     }
                     time_t current_time_sec = time(NULL);
                     float latitude = static_cast<float>(data->lat) * 1e-7f;
@@ -218,22 +215,19 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
                             gps_alt
                         );
                         xSemaphoreGive(dataManagerSemaphore);
-                        // M5.Log.printf("RID: %s, RSSI: %d, Lat: %.4f, Lon: %.4f, PAlt: %.1f, GAlt: %.1f\n",
-                        //    rid_from_payload.c_str(), ppkt->rx_ctrl.rssi, latitude, longitude, pressure_alt, gps_alt);
                     } else {
                         M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in sniffer_cb\n");
                     }
-                    return; // Processed ASTM RID data, exit handler for this packet
+                    return;
                 } else {
-                    M5.Log.printf("[DEBUG] Vendor IE for ASTM RID too short for RID_Data. Len: %u, Expected Min after OUI: %u\n",
+                     M5.Log.printf("[DEBUG] Vendor IE for ASTM RID too short. Len: %u, Expected Min: %u\n",
                                   current_element->len, oui_header_size + sizeof(RID_Data));
                 }
             }
         }
-        // Move to next element
         int element_total_len = sizeof(element_head_t) + current_element->len;
         if (element_total_len == 0 || element_total_len > current_remaining_len) {
-             M5.Log.printf("[ERROR] Invalid element length: %d in packet. Remaining len: %d\n", current_element->len, current_remaining_len);
+             M5.Log.printf("[ERROR] Invalid element length: %d. Remaining: %d\n", current_element->len, current_remaining_len);
              break;
         }
         current_remaining_len -= element_total_len;
@@ -241,19 +235,7 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
     }
 }
 
-void display_init(void) {
-    auto cfg = M5.config();
-    // StickCP2.begin(cfg); // M5Unifiedでは M5.begin() で統合されることが多い
-    M5.begin(cfg); // M5Unified の標準的な初期化
-    M5.Display.fillScreen(BLACK);
-    M5.Display.setTextColor(GREEN, BLACK); // 背景色も指定するとチラつきを抑えられる場合がある
-    M5.Display.setFont(&fonts::Font0);
-    M5.Display.setTextSize(1);
-    M5.Display.setRotation(1); // M5StickCPlus2 は通常縦持ちなので1か3
-    M5.Display.setTextWrap(false);
-    M5.Display.setCursor(0, 0);
-    M5.Log.printf("Display initialized.\n");
-}
+// display_init() は M5CanvasTextDisplayController の初期化に置き換えられるため不要
 
 void wifi_sniffer_init(void) {
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -263,40 +245,58 @@ void wifi_sniffer_init(void) {
   ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_NULL) );
   ESP_ERROR_CHECK( esp_wifi_start() );
   wifi_promiscuous_filter_t filter;
-  filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT; // Only management frames
+  filter.filter_mask = WIFI_PROMIS_FILTER_MASK_MGMT;
   ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&filter));
   ESP_ERROR_CHECK(esp_wifi_set_promiscuous_rx_cb(&wifi_sniffer_packet_handler));
   ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
-  ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE)); // 初期チャンネル設定
+  ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE));
   M5.Log.printf("Wi-Fi Sniffer initialized on Channel %d.\n", channel);
 }
 
 void setup()
 {
-    // M5.Rtc.begin(); // RTCを使用する前に初期化が必要な場合がある (M5UnifiedではM5.begin()に含まれることが多い)
-    display_init(); // M5.begin() は display_init 内でコールされる
+    M5.begin(); // M5Unified の標準的な初期化 (DisplayControllerより先が良い)
+    // M5CanvasTextDisplayController の初期化
+    displayController_ptr = new M5CanvasTextDisplayController(M5.Display);
+    if (!displayController_ptr) {
+        M5.Log.printf("[FATAL] Failed to allocate Display Controller!\n");
+        while(1); // Halt
+    }
+    // 初期設定: 文字サイズ1, 行ラップ無効, 文字色GREEN, 背景色BLACK, 回転1 (横向き)
+    if (!displayController_ptr->begin(1, false, GREEN, BLACK, 1)) {
+        M5.Log.printf("[FATAL] Failed to initialize Display Controller!\n");
+        while(1); // Halt
+    }
+    M5CanvasTextDisplayController& dc = *displayController_ptr; // エイリアス
+    // dc.setLineWrap(false); // beginの引数で設定済み
     dataManagerSemaphore = xSemaphoreCreateMutex();
     if (dataManagerSemaphore == NULL) {
         M5.Log.printf("[FATAL] Failed to create dataManagerSemaphore!\n");
-        while(1); // Halt
+        dc.fillScreen(RED); // エラーを画面に表示
+        dc.setTextColor(WHITE);
+        dc.setCursor(0,0);
+        dc.println("Semaphore FAIL");
+        dc.show();
+        while(1);
     }
     M5.Log.printf("[INFO] Setting up RTC and system time...\n");
+    // ... (RTC設定部分は変更なし) ...
     auto dt = M5.Rtc.getDateTime();
-    if (dt.date.year < 2023) { // Check if RTC date is sensible
+    if (dt.date.year < 2023) { 
         M5.Log.printf("[INFO] RTC date is old (%04d-%02d-%02d), setting to a default time.\n",
                       dt.date.year, dt.date.month, dt.date.date);
         decltype(M5.Rtc.getDateTime()) default_datetime;
-        default_datetime.date.year = 2024; // Example: Current year or compile year
-        default_datetime.date.month = 1;   // Example: January
-        default_datetime.date.date = 1;    // Example: 1st
-        default_datetime.time.hours = 0;   // Example: Midnight
+        default_datetime.date.year = 2024; 
+        default_datetime.date.month = 1;   
+        default_datetime.date.date = 1;    
+        default_datetime.time.hours = 0;   
         default_datetime.time.minutes = 0;
         default_datetime.time.seconds = 0;
         M5.Rtc.setDateTime(default_datetime);
         M5.Log.printf("[INFO] RTC set to default: %04d-%02d-%02d %02d:%02d:%02d\n",
                       default_datetime.date.year, default_datetime.date.month, default_datetime.date.date,
                       default_datetime.time.hours, default_datetime.time.minutes, default_datetime.time.seconds);
-        dt = M5.Rtc.getDateTime(); // Re-fetch the (now set) time
+        dt = M5.Rtc.getDateTime(); 
     }
     struct tm tminfo;
     tminfo.tm_year = dt.date.year - 1900;
@@ -305,7 +305,7 @@ void setup()
     tminfo.tm_hour = dt.time.hours;
     tminfo.tm_min  = dt.time.minutes;
     tminfo.tm_sec  = dt.time.seconds;
-    tminfo.tm_isdst = -1; // Let mktime determine DST
+    tminfo.tm_isdst = -1; 
     time_t rtc_epoch = mktime(&tminfo);
     if (rtc_epoch == -1) {
         M5.Log.printf("[ERROR] Failed to convert RTC datetime to epoch. System time may be incorrect.\n");
@@ -320,67 +320,103 @@ void setup()
     }
     time_t current_system_time = time(NULL);
     M5.Log.printf("[INFO] Current system time (epoch): %ld\n", current_system_time);
-    // M5.Log.printf("[INFO] Current system time (string): %s", ctime(¤t_system_time)); // ctime adds newline
-    wifi_sniffer_init(); // Moved after RTC setup for accurate timestamps from sniffer start
+    wifi_sniffer_init();
     M5.Log.printf("Setup completed. Starting RID sniffing...\n");
+    dc.setCursor(0, dc.getRows() / 2); // 画面中央あたりに
+    dc.println("Setup Complete!");
+    dc.println("Starting Sniffing...");
+    dc.show();
+    delay(1000); // 少し表示時間
 }
 
-const int MAX_RIDS_TO_DISPLAY = 4; // 画面サイズに合わせて調整 (M5StickCPlus2では4行程度が適切か)
+const int MAX_RIDS_TO_DISPLAY = 4; // 画面に表示するRIDの最大数
 
 void loop()
 {
-    M5.update(); // M5Unified: Process button events, etc.
+    M5.update();
+    if (!displayController_ptr) return; // displayControllerが初期化失敗していたら何もしない
+    M5CanvasTextDisplayController& dc = *displayController_ptr;
     delay(WIFI_CHANNEL_SWITCH_INTERVAL);
-    channel = (channel % WIFI_CHANNEL_MAX) + 1; // Cycles 1->...->WIFI_CHANNEL_MAX->1
+    channel = (channel % WIFI_CHANNEL_MAX) + 1;
     ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE));
-    // M5.Log.printf("Switched to Wi-Fi channel: %d\n", channel);
-    M5.Display.fillScreen(BLACK);
-    M5.Display.setCursor(0, 0);
+    dc.clearDrawingCanvas(); // 描画キャンバスをクリア
+    dc.setCursor(0, 0);      // カーソルを左上にリセット
     int current_rid_count = 0;
-    if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(5)) == pdTRUE) { // Shorter timeout for count
+    if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(5)) == pdTRUE) {
         current_rid_count = dataManager.getRIDCount();
         xSemaphoreGive(dataManagerSemaphore);
     } else {
         M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.\n");
     }
-    M5.Display.printf("Ch:%2d RIDs:%d Heap:%d\n", channel, current_rid_count, ESP.getFreeHeap());
-    M5.Display.println("---------------------");
+    char header_buf[80]; // バッファサイズを確保
+    snprintf(header_buf, sizeof(header_buf), "Ch:%2d RIDs:%d Heap:%u", channel, current_rid_count, ESP.getFreeHeap());
+    dc.println(header_buf);
+    String separator = "";
+    for (int i = 0; i < dc.getCols(); ++i) {
+        separator += "-";
+    }
+    dc.println(separator);
+    // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
+    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / 3 : 0;
+    int rids_to_show_this_loop = min(MAX_RIDS_TO_DISPLAY, displayable_rids_on_screen);
     if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
-        // 最初にソート済みRIDのリストを取得 (Stringのコピーは発生する)
         std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
-        int rid_count_for_display = sorted_rids_info.size();
+        int rid_count_available = sorted_rids_info.size();
         int displayed_count = 0;
-        if (rid_count_for_display > 0) {
-            for (int i = 0; i < rid_count_for_display && displayed_count < MAX_RIDS_TO_DISPLAY; ++i) {
-                String current_rid_str = sorted_rids_info[i].second; // ソート済みリストから取得
+        if (rid_count_available > 0) {
+            for (int i = 0; i < rid_count_available && displayed_count < rids_to_show_this_loop; ++i) {
+                 // 次のRID情報(3行)が現在のカーソル位置から画面に収まるかチェック
+                if (dc.getPrintCursorRow() + 3 > dc.getRows()) {
+                    break; 
+                }
+                String current_rid_str = sorted_rids_info[i].second;
                 if (!current_rid_str.isEmpty()) {
                     RemoteIDEntry latest_entry;
                     if (dataManager.getLatestEntryForRID(current_rid_str, latest_entry)) {
-                        // Display RID (truncate if too long for screen)
-                        M5.Display.printf("%.10s (%d)\n", current_rid_str.c_str(), latest_entry.rssi);
+                        char line_buf[128]; // 各行のバッファ
+                        // Display RID (RSSI) - 画面幅に応じてRID文字列を切り詰める
+                        String rid_to_display = current_rid_str;
+                        // " (RSSI)" のために約6文字消費 + マージン
+                        int max_rid_len = dc.getCols() - 7; 
+                        if (max_rid_len < 1) max_rid_len = 1; // 最低1文字
+                        if (rid_to_display.length() > (unsigned int)max_rid_len) {
+                            rid_to_display = rid_to_display.substring(0, max_rid_len);
+                        }
+                        snprintf(line_buf, sizeof(line_buf), "%s (%d)", rid_to_display.c_str(), latest_entry.rssi);
+                        dc.println(line_buf);
                         // Display Lat/Lon
-                        M5.Display.printf(" L:%.3f Lo:%.3f\n", latest_entry.latitude, latest_entry.longitude);
-                        // Display Altitudes
-                        M5.Display.printf(" P:%.0fm G:%.0fm ", latest_entry.pressureAltitude, latest_entry.gpsAltitude);
-                        // Display Time of last update
+                        snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
+                        dc.println(line_buf);
+                        // Display Altitudes and Time
+                        char time_str[10] = "N/A Time";
                         time_t entry_time = latest_entry.timestamp;
                         struct tm *tm_info = localtime(&entry_time);
                         if (tm_info) {
-                             M5.Display.printf("%02d:%02d:%02d\n", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
-                        } else {
-                             M5.Display.println(" N/A Time");
+                             snprintf(time_str, sizeof(time_str), "%02d:%02d:%02d", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
                         }
+                        snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
+                        dc.println(line_buf);
+                        
                         displayed_count++;
-                        if (M5.Display.getCursorY() > M5.Display.height() - M5.Display.fontHeight()) break;
                     }
                 }
             }
-        } else {
-            M5.Display.println("No RID data yet.");
+        }
+        if (displayed_count == 0 && rid_count_available == 0) { // データが全くない場合
+             if (dc.getPrintCursorRow() < dc.getRows()) { // 空き行があれば表示
+                dc.println("No RID data yet.");
+             }
+        } else if (displayed_count == 0 && rid_count_available > 0) { // データはあるが表示できなかった場合(行数不足など)
+            if (dc.getPrintCursorRow() < dc.getRows()) {
+                dc.println("No space to show RIDs");
+            }
         }
         xSemaphoreGive(dataManagerSemaphore);
     } else {
         M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for display.\n");
-        M5.Display.println("Failed to get data...");
+        if (dc.getPrintCursorRow() < dc.getRows()) {
+            dc.println("Failed to get data...");
+        }
     }
+    dc.show(); // 全ての描画が終わったら、描画キャンバスの内容をLCDに転送
 }
