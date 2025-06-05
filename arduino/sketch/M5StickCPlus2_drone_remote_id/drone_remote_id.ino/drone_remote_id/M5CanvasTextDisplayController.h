@@ -15,7 +15,16 @@ public:
     }
 
     ~M5CanvasTextDisplayController() {
-        _deleteCanvases(); // 共通の解放処理を呼ぶ
+        if (_canvas1) {
+            _canvas1->deleteSprite();
+        }
+        if (_canvas2) {
+            _canvas2->deleteSprite();
+        }
+        delete _canvas1;
+        _canvas1 = nullptr;
+        delete _canvas2;
+        _canvas2 = nullptr;
     }
 
     // 初期化
