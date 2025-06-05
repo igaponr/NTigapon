@@ -60,6 +60,9 @@ public:
     // max_log_entries: 1つのRIDに対してJSONに含める最大エントリ数
     String getJsonForTopRSSI(int count, size_t max_log_entries) const;
     String getJsonForRegistrationNo(const String& regNo, size_t max_log_entries) const;
+    // チャンネル取得用ヘルパーメソッド (オプション)
+    int getLatestChannelForTopRSSI() const;
+    int getLatestChannelForRegistrationNo(const String& regNo) const;
 
 private:
     // RIDごとのデータと設定を保持する内部構造体

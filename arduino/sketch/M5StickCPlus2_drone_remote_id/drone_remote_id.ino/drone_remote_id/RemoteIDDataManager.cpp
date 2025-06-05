@@ -228,3 +228,27 @@ String RemoteIDDataManager::getJsonForRegistrationNo(const String& regNo, size_t
     serializeJson(doc, output);
     return output;
 }
+
+// オプションのヘルパーメソッドの実装
+int RemoteIDDataManager::getLatestChannelForTopRSSI() const {
+    std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
+    if (!sorted_rids.empty()) {
+        String top_rid_str = sorted_rids[0].second;
+        RemoteIDEntry latest_entry;
+        if (getLatestEntryForRID(top_rid_str, latest_entry)) {
+            return latest_entry.channel;
+        }
+    }
+    return -1; // 見つからないかデータなし
+}
+
+int RemoteIDDataManager::getLatestChannelForRegistrationNo(const String& regNo) const {
+    if (regNo.isEmpty()) return -1;
+    for (const auto& pair : _data_store) {
+        const RIDDataContainer& container = pair.second;
+        if (!container.entries.empty() && container.entries.back().registrationNo == regNo) {
+            return container.entries.back().channel; // 最新エントリのチャンネル
+        }
+    }
+    return -1; // 見つからないかデータなし
+}

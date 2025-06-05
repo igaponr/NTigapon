@@ -18,6 +18,7 @@
 #include <Arduino.h>
 #include <string.h>
 #include <ctime>
+#include <M5StickCPlus2.h>
 #include "esp_wifi.h"
 #include "esp_mac.h"
 #include "nvs_flash.h"
@@ -42,6 +43,11 @@ const uint8_t ASTM_OUI_TYPE_RID = 0x0D;
 const int HEADER_LINES = 2; // ヘッダ情報が表示される行数 (例: "Ch: RIDs: Heap:", "-------")
 const int LINES_PER_RID_ENTRY = 5;
 int max_rids_to_display_calculated = 0;
+// --- チャンネル固定モード用変数 ---
+bool channelLockModeActive = false;
+int lockedChannel = -1; // 固定中のチャンネル (-1なら固定されていない)
+unsigned long lastChannelLockCheck = 0; // チャンネル固定モード時にターゲットチャンネルを再確認する間隔用
+const unsigned long CHANNEL_LOCK_CHECK_INTERVAL = 5000; // 5秒ごとにターゲットのchを再確認
 
 #pragma pack(push,1)
 typedef struct{
@@ -343,12 +349,14 @@ void setup()
     M5.Log.printf("[INFO] Current system time (epoch): %ld\n", current_system_time);
     wifi_sniffer_init();
     M5.Log.printf("Setup completed. Starting RID sniffing...\n");
-    dc.setCursor(0, dc.getRows() / 2); // 画面中央あたりに
+    dc.clearDrawingCanvas(); // 既存のメッセージをクリア
+    dc.setCursor(0, dc.getRows() / 3); // 少し上に
     dc.println("Setup Complete!");
-    dc.println("Starting Sniffing...");
-    dc.println("Press BTN_A for JSON");
+    dc.println("A: Send JSON");
+    dc.println("B: Ch Lock");
+    dc.println("C: Reset Device");
     dc.show();
-    delay(3000); // 少し表示時間
+    delay(3000); // 表示時間
 }
 
 void loop()
@@ -401,26 +409,125 @@ void loop()
             delay(2000);
         }
     }
+    // --- Bボタン: チャンネル固定モード切り替え ---
+    if (M5.BtnB.wasPressed()) {
+        channelLockModeActive = !channelLockModeActive;
+        if (channelLockModeActive) {
+            M5.Log.println("Channel lock mode ACTIVATED.");
+            lockedChannel = -1; // 最初は不明
+            lastChannelLockCheck = millis(); // チェックタイマーリセット
+        } else {
+            M5.Log.println("Channel lock mode DEACTIVATED. Resuming scan.");
+            lockedChannel = -1;
+            // 次の通常のチャンネル切り替えでスキャンが再開される
+        }
+        // 画面更新を即座に行うために、display updateのタイマーをリセットするのも良い
+        // last_display_update = 0; // これにより次のループで即座に画面更新
+    }
+    // --- ボタンCが押されたことが認識できない ---
+    if (M5.BtnPWR.wasPressed()) {
+        M5.Log.println("Button C pressed. Resetting...");
+        dc.clearDrawingCanvas();
+        dc.setCursor(0, dc.getRows() / 2 -1);
+        dc.println("Resetting...");
+        dc.show();
+        delay(1000); // メッセージ表示のための短い遅延
+        ESP.restart();
+    }
     // --- 以下、既存の定期的な画面表示ロジック ---
     static unsigned long last_display_update = 0;
     if (millis() - last_display_update > WIFI_CHANNEL_SWITCH_INTERVAL) {
         last_display_update = millis();
-        channel = (channel % WIFI_CHANNEL_MAX) + 1;
-        esp_err_t err = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
-        if (err != ESP_OK) {
-            M5.Log.printf("[ERROR] Failed to set channel to %d: %s\n", channel, esp_err_to_name(err));
+        // --- チャンネル制御 ---
+        if (channelLockModeActive) {
+            // チャンネル固定モードが有効
+            if (lockedChannel == -1 || (millis() - lastChannelLockCheck > CHANNEL_LOCK_CHECK_INTERVAL)) {
+                // 固定チャンネルが未設定、または定期チェックのタイミング
+                lastChannelLockCheck = millis();
+                int targetChannel = -1;
+                if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+#                   if SEND_MODE_TOP_RSSI == 1
+                        // RemoteIDDataManagerにヘルパーがない場合はここでロジックを書く
+                        std::vector<std::pair<int, String>> sorted_rids = dataManager.getSortedRIDsByRSSI();
+                        if (!sorted_rids.empty()) {
+                            RemoteIDEntry latest_entry;
+                            if (dataManager.getLatestEntryForRID(sorted_rids[0].second, latest_entry)) {
+                                targetChannel = latest_entry.channel;
+                            }
+                        }
+#                   else
+                        // RemoteIDDataManagerにヘルパーがない場合はここでロジックを書く
+                        for (const auto& pair : dataManager._data_store) { // _data_storeへの直接アクセスは良くない。ヘルパー推奨
+                            const auto& container = pair.second;
+                            if (!container.entries.empty() && container.entries.back().registrationNo == String(TARGET_REG_NO_FOR_JSON)) {
+                                targetChannel = container.entries.back().channel;
+                                break;
+                            }
+                        }
+#                   endif
+                    xSemaphoreGive(dataManagerSemaphore);
+                } else {
+                    M5.Log.println("[WARNING] Failed to take semaphore for channel lock target check.");
+                }
+                if (targetChannel != -1 && targetChannel >= 1 && targetChannel <= WIFI_CHANNEL_MAX) {
+                    if (lockedChannel != targetChannel) { // チャンネルが変わった場合のみ設定
+                        esp_err_t err = esp_wifi_set_channel(targetChannel, WIFI_SECOND_CHAN_NONE);
+                        if (err == ESP_OK) {
+                            M5.Log.printf("Channel locked to: %d\n", targetChannel);
+                            lockedChannel = targetChannel; // 現在の物理チャンネルを更新
+                            channel = lockedChannel; // 表示用のグローバル `channel` 変数も更新
+                        } else {
+                            M5.Log.printf("[ERROR] Failed to lock channel to %d: %s\n", targetChannel, esp_err_to_name(err));
+                            // lockedChannel = -1; // 設定失敗したらロック解除する？ or 前の値を維持？
+                        }
+                    }
+                } else {
+                    // ターゲットが見つからない場合、どうするか？
+                    // M5.Log.println("Target for channel lock not found. Check if active.");
+                    // ここでは何もしない (lockedChannelは変わらない or -1のまま)
+                    // もしlockedChannelが-1のままなら、次の通常のチャンネルスキャンに進む
+                    // 既存のlockedChannelがあれば、それを維持する
+                }
+            }
+            // lockedChannelが有効なら、そのチャンネルを維持 (esp_wifi_set_channelは頻繁に呼ばない)
+            // 表示用の 'channel' 変数はlockedChannelの値を使う
+            if (lockedChannel != -1) {
+                 channel = lockedChannel; // 表示用
+            } else {
+                 // ターゲットが見つからず、まだロックできていない場合は通常のチャンネルスキャンへ
+                 // （または、固定モードを一旦解除するなどの挙動も考えられる）
+                 // ここでは、次の通常のチャンネルスキャンロジックが実行されるようにする
+                 channel = (channel % WIFI_CHANNEL_MAX) + 1;
+                 esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+            }
+        } else {
+            // 通常のチャンネルスキャンモード
+            channel = (channel % WIFI_CHANNEL_MAX) + 1;
+            esp_err_t err = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+            if (err != ESP_OK) {
+                M5.Log.printf("[ERROR] Failed to set channel to %d: %s\n", channel, esp_err_to_name(err));
+            }
+            lockedChannel = -1; // 固定モードではないので-1
         }
         dc.clearDrawingCanvas(); // 描画キャンバスをクリア
         dc.setCursor(0, 0);      // カーソルを左上にリセット
         int current_rid_count = 0;
-        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(5)) == pdTRUE) {
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
             current_rid_count = dataManager.getRIDCount();
             xSemaphoreGive(dataManagerSemaphore);
         } else {
-            M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.\n");
+            M5.Log.println("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.");
         }
-        char header_buf[80]; // バッファサイズを確保
-        snprintf(header_buf, sizeof(header_buf), "Ch:%2d RIDs:%d Heap:%u", channel, current_rid_count, ESP.getFreeHeap());
+        char header_buf[80];
+        if (channelLockModeActive) {
+            if (lockedChannel != -1) {
+                snprintf(header_buf, sizeof(header_buf), "Ch:%2d(L) RIDs:%d H:%u", lockedChannel, current_rid_count, ESP.getFreeHeap());
+            } else {
+                snprintf(header_buf, sizeof(header_buf), "Ch:Lock? RIDs:%d H:%u", current_rid_count, ESP.getFreeHeap());
+            }
+        } else {
+            snprintf(header_buf, sizeof(header_buf), "Ch:%2d(S) RIDs:%d H:%u", channel, current_rid_count, ESP.getFreeHeap());
+        }
         dc.println(header_buf);
         String separator = "";
         for (int i = 0; i < dc.getCols(); ++i) {
