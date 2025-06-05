@@ -30,14 +30,14 @@
 
 RemoteIDDataManager dataManager("");
 M5CanvasTextDisplayController* displayController_ptr = nullptr;
-
 static wifi_country_t wifi_country = {.cc = "JP", .schan = 1, .nchan = WIFI_CHANNEL_MAX};
 int channel = 1;
 SemaphoreHandle_t dataManagerSemaphore;
 const uint8_t ASTM_OUI[] = {0xFA, 0x0B, 0xBC};
 const uint8_t ASTM_OUI_TYPE_RID = 0x0D;
-const int MAX_RIDS_TO_DISPLAY = 4; // 画面に表示するRIDの最大数
+const int HEADER_LINES = 2; // ヘッダ情報が表示される行数 (例: "Ch: RIDs: Heap:", "-------")
 const int LINES_PER_RID_ENTRY = 5;
+int max_rids_to_display_calculated = 0;
 
 #pragma pack(push,1)
 typedef struct{
@@ -249,8 +249,6 @@ void wifi_sniffer_packet_handler(void* buf, wifi_promiscuous_pkt_type_t type) {
     }
 }
 
-// display_init() は M5CanvasTextDisplayController の初期化に置き換えられるため不要
-
 void wifi_sniffer_init(void) {
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
@@ -282,7 +280,12 @@ void setup()
         while(1); // Halt
     }
     M5CanvasTextDisplayController& dc = *displayController_ptr; // エイリアス
-    // dc.setLineWrap(false); // beginの引数で設定済み
+    // MAX_RIDS_TO_DISPLAY に相当する値を計算して設定
+    int available_rows_for_rids = dc.getRows() - HEADER_LINES;
+    if (available_rows_for_rids < 0) available_rows_for_rids = 0;
+    max_rids_to_display_calculated = available_rows_for_rids / LINES_PER_RID_ENTRY;
+    if (max_rids_to_display_calculated < 0) max_rids_to_display_calculated = 0;
+    M5.Log.printf("[INFO] Calculated max RIDs to display: %d\n", max_rids_to_display_calculated);
     dataManagerSemaphore = xSemaphoreCreateMutex();
     if (dataManagerSemaphore == NULL) {
         M5.Log.printf("[FATAL] Failed to create dataManagerSemaphore!\n");
@@ -340,7 +343,7 @@ void setup()
     dc.println("Setup Complete!");
     dc.println("Starting Sniffing...");
     dc.show();
-    delay(1000); // 少し表示時間
+    delay(3000); // 少し表示時間
 }
 
 void loop()
@@ -370,13 +373,14 @@ void loop()
     dc.println(separator);
     // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
     int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / LINES_PER_RID_ENTRY : 0;
-    int rids_to_show_this_loop = min(MAX_RIDS_TO_DISPLAY, displayable_rids_on_screen);
     if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
         std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
         int rid_count_available = sorted_rids_info.size();
         int displayed_count = 0;
+        // 実際に表示する数を決定 (利用可能なRID数と計算された最大表示数の小さい方)
+        int rids_to_actually_display = min(rid_count_available, max_rids_to_display_calculated);
         if (rid_count_available > 0) {
-            for (int i = 0; i < rid_count_available && displayed_count < rids_to_show_this_loop; ++i) {
+            for (int i = 0; i < rids_to_actually_display && displayed_count < max_rids_to_display_calculated; ++i) {
                 // 次のRID情報が現在のカーソル位置から画面に収まるかチェック
                 if (dc.getPrintCursorRow() + LINES_PER_RID_ENTRY > dc.getRows()) {
                     break; 
@@ -396,19 +400,16 @@ void loop()
                         }
                         snprintf(line_buf, sizeof(line_buf), "%s (%d,Ch:%d)", rid_to_display.c_str(), latest_entry.rssi, latest_entry.channel);
                         dc.println(line_buf);
-                        if (!latest_entry.registrationNo.isEmpty()) { // 登録記号があれば表示
+                        if (!latest_entry.registrationNo.isEmpty()) {  // 登録記号があれば表示
                             String reg_no_to_display = latest_entry.registrationNo;
                             // 画面幅に応じて登録記号を切り詰める (例: 最大表示文字数 getCols())
                             if (reg_no_to_display.length() > (unsigned int)dc.getCols()) {
                                 reg_no_to_display = reg_no_to_display.substring(0, dc.getCols());
                             }
                             snprintf(line_buf, sizeof(line_buf), "Reg:%.*s", dc.getCols() - 4, reg_no_to_display.c_str()); // "Reg:"の分を引く
-                            // または単純に println
-                            // dc.print("Reg:"); dc.println(reg_no_to_display);
                             dc.println(line_buf);
-                        } else {
-                            // 登録記号がない場合は空行をprintlnするか、何も表示しないか選べる
-                            // dc.println("Reg:N/A"); // 例
+                        } else {  // 登録記号がない場合
+                            dc.println("Reg:N/A");
                         }
                         // Display Lat/Lon
                         snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
