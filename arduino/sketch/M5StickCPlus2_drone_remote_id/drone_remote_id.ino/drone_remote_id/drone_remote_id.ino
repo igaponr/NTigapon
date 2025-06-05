@@ -27,7 +27,11 @@
 #define WIFI_CHANNEL_SWITCH_INTERVAL  (500)
 #define WIFI_CHANNEL_MAX               (13) // 日本のWi-Fiチャンネルは通常1-13ch、14chは特殊。
 #define MAX_SSID_LEN                   (32) // SSIDの最大長 (esp_wifi_types.hより)
+#define SEND_MODE_TOP_RSSI 1       // 1: RSSI上位1件のデータを送信, 0: 指定登録記号のデータを送信
+                                   // SEND_MODE_TOP_RSSI を 0 にすると指定登録記号モードになります。
 
+const char* TARGET_REG_NO_FOR_JSON = "JA.TEST012345"; // 指定登録記号モードの場合の対象
+const size_t MAX_ENTRIES_IN_JSON = 600; // 1つのRIDに対してJSONに含める最大エントリ数 (メモリと相談)
 RemoteIDDataManager dataManager("");
 M5CanvasTextDisplayController* displayController_ptr = nullptr;
 static wifi_country_t wifi_country = {.cc = "JP", .schan = 1, .nchan = WIFI_CHANNEL_MAX};
@@ -342,6 +346,7 @@ void setup()
     dc.setCursor(0, dc.getRows() / 2); // 画面中央あたりに
     dc.println("Setup Complete!");
     dc.println("Starting Sniffing...");
+    dc.println("Press BTN_A for JSON");
     dc.show();
     delay(3000); // 少し表示時間
 }
@@ -351,102 +356,154 @@ void loop()
     M5.update();
     if (!displayController_ptr) return; // displayControllerが初期化失敗していたら何もしない
     M5CanvasTextDisplayController& dc = *displayController_ptr;
-    delay(WIFI_CHANNEL_SWITCH_INTERVAL);
-    channel = (channel % WIFI_CHANNEL_MAX) + 1;
-    ESP_ERROR_CHECK(esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE));
-    dc.clearDrawingCanvas(); // 描画キャンバスをクリア
-    dc.setCursor(0, 0);      // カーソルを左上にリセット
-    int current_rid_count = 0;
-    if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(5)) == pdTRUE) {
-        current_rid_count = dataManager.getRIDCount();
-        xSemaphoreGive(dataManagerSemaphore);
-    } else {
-        M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.\n");
+    // --- ボタンAが押されたらJSONデータをシリアル送信 ---
+    if (M5.BtnA.wasPressed()) {
+        M5.Log.println("Button A pressed. Preparing JSON data...");
+        dc.clearDrawingCanvas();
+        dc.setCursor(0,0);
+        dc.println("BTN_A: Sending JSON...");
+        dc.show();
+        String json_string_to_send;
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+#           if SEND_MODE_TOP_RSSI == 1
+                M5.Log.printf("Mode: Top RSSI, Max Entries: %u\n", MAX_ENTRIES_IN_JSON);
+                json_string_to_send = dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON);
+#           else
+                M5.Log.printf("Mode: Reg No '%s', Max Entries: %u\n", TARGET_REG_NO_FOR_JSON, MAX_ENTRIES_IN_JSON);
+                json_string_to_send = dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON);
+#           endif
+            xSemaphoreGive(dataManagerSemaphore);
+            if (json_string_to_send.length() > 2 && json_string_to_send != "{}") { // "{}" は空オブジェクト
+                M5.Log.printf("%s\n", json_string_to_send.c_str());
+                M5.Log.printf("JSON data sent (%d bytes).\n", json_string_to_send.length());
+                dc.clearDrawingCanvas();
+                dc.setCursor(0,0);
+                dc.println("JSON Sent via Serial!");
+                dc.println("Check PC.");
+                dc.show();
+                delay(2500); // 送信完了メッセージ表示時間
+            } else {
+                M5.Log.println("No data to send or JSON generation failed (empty JSON).");
+                dc.clearDrawingCanvas();
+                dc.setCursor(0,0);
+                dc.println("No JSON data found");
+                dc.println("or generation failed.");
+                dc.show();
+                delay(2500);
+            }
+        } else {
+            M5.Log.println("[ERROR] Could not obtain semaphore for JSON data generation.");
+            dc.clearDrawingCanvas();
+            dc.setCursor(0,0);
+            dc.println("Error: Semaphore busy.");
+            dc.println("Try again.");
+            dc.show();
+            delay(2000);
+        }
     }
-    char header_buf[80]; // バッファサイズを確保
-    snprintf(header_buf, sizeof(header_buf), "Ch:%2d RIDs:%d Heap:%u", channel, current_rid_count, ESP.getFreeHeap());
-    dc.println(header_buf);
-    String separator = "";
-    for (int i = 0; i < dc.getCols(); ++i) {
-        separator += "-";
-    }
-    dc.println(separator);
-    // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
-    int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / LINES_PER_RID_ENTRY : 0;
-    if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
-        std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
-        int rid_count_available = sorted_rids_info.size();
-        int displayed_count = 0;
-        // 実際に表示する数を決定 (利用可能なRID数と計算された最大表示数の小さい方)
-        int rids_to_actually_display = min(rid_count_available, max_rids_to_display_calculated);
-        if (rid_count_available > 0) {
-            for (int i = 0; i < rids_to_actually_display && displayed_count < max_rids_to_display_calculated; ++i) {
-                // 次のRID情報が現在のカーソル位置から画面に収まるかチェック
-                if (dc.getPrintCursorRow() + LINES_PER_RID_ENTRY > dc.getRows()) {
-                    break; 
-                }
-                String current_rid_str = sorted_rids_info[i].second;
-                if (!current_rid_str.isEmpty()) {
-                    RemoteIDEntry latest_entry;
-                    if (dataManager.getLatestEntryForRID(current_rid_str, latest_entry)) {
-                        char line_buf[128]; // 各行のバッファ
-                        // Display RID (RSSI) - 画面幅に応じてRID文字列を切り詰める
-                        String rid_to_display = current_rid_str;
-                        // " (RSSI)" のために約13文字消費 + マージン
-                        int max_rid_len = dc.getCols() - 14;
-                        if (max_rid_len < 1) max_rid_len = 1;
-                        if (rid_to_display.length() > (unsigned int)max_rid_len) {
-                            rid_to_display = rid_to_display.substring(0, max_rid_len);
-                        }
-                        snprintf(line_buf, sizeof(line_buf), "%s (%d,Ch:%d)", rid_to_display.c_str(), latest_entry.rssi, latest_entry.channel);
-                        dc.println(line_buf);
-                        if (!latest_entry.registrationNo.isEmpty()) {  // 登録記号があれば表示
-                            String reg_no_to_display = latest_entry.registrationNo;
-                            // 画面幅に応じて登録記号を切り詰める (例: 最大表示文字数 getCols())
-                            if (reg_no_to_display.length() > (unsigned int)dc.getCols()) {
-                                reg_no_to_display = reg_no_to_display.substring(0, dc.getCols());
+    // --- 以下、既存の定期的な画面表示ロジック ---
+    static unsigned long last_display_update = 0;
+    if (millis() - last_display_update > WIFI_CHANNEL_SWITCH_INTERVAL) {
+        last_display_update = millis();
+        channel = (channel % WIFI_CHANNEL_MAX) + 1;
+        esp_err_t err = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+        if (err != ESP_OK) {
+            M5.Log.printf("[ERROR] Failed to set channel to %d: %s\n", channel, esp_err_to_name(err));
+        }
+        dc.clearDrawingCanvas(); // 描画キャンバスをクリア
+        dc.setCursor(0, 0);      // カーソルを左上にリセット
+        int current_rid_count = 0;
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(5)) == pdTRUE) {
+            current_rid_count = dataManager.getRIDCount();
+            xSemaphoreGive(dataManagerSemaphore);
+        } else {
+            M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.\n");
+        }
+        char header_buf[80]; // バッファサイズを確保
+        snprintf(header_buf, sizeof(header_buf), "Ch:%2d RIDs:%d Heap:%u", channel, current_rid_count, ESP.getFreeHeap());
+        dc.println(header_buf);
+        String separator = "";
+        for (int i = 0; i < dc.getCols(); ++i) {
+            separator += "-";
+        }
+        dc.println(separator);
+        // 表示可能なRID数を計算 (ヘッダ2行、各RID3行と仮定)
+        int displayable_rids_on_screen = (dc.getRows() > 2) ? (dc.getRows() - 2) / LINES_PER_RID_ENTRY : 0;
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) {
+            std::vector<std::pair<int, String>> sorted_rids_info = dataManager.getSortedRIDsByRSSI();
+            int rid_count_available = sorted_rids_info.size();
+            int displayed_count = 0;
+            // 実際に表示する数を決定 (利用可能なRID数と計算された最大表示数の小さい方)
+            int rids_to_actually_display = min(rid_count_available, max_rids_to_display_calculated);
+            if (rid_count_available > 0) {
+                for (int i = 0; i < rids_to_actually_display && displayed_count < max_rids_to_display_calculated; ++i) {
+                    // 次のRID情報が現在のカーソル位置から画面に収まるかチェック
+                    if (dc.getPrintCursorRow() + LINES_PER_RID_ENTRY > dc.getRows()) {
+                        break;
+                    }
+                    String current_rid_str = sorted_rids_info[i].second;
+                    if (!current_rid_str.isEmpty()) {
+                        RemoteIDEntry latest_entry;
+                        if (dataManager.getLatestEntryForRID(current_rid_str, latest_entry)) {
+                            char line_buf[128]; // 各行のバッファ
+                            // Display RID (RSSI) - 画面幅に応じてRID文字列を切り詰める
+                            String rid_to_display = current_rid_str;
+                            // " (RSSI)" のために約13文字消費 + マージン
+                            int max_rid_len = dc.getCols() - 14;
+                            if (max_rid_len < 1) max_rid_len = 1;
+                            if (rid_to_display.length() > (unsigned int)max_rid_len) {
+                                rid_to_display = rid_to_display.substring(0, max_rid_len);
                             }
-                            snprintf(line_buf, sizeof(line_buf), "Reg:%.*s", dc.getCols() - 4, reg_no_to_display.c_str()); // "Reg:"の分を引く
+                            snprintf(line_buf, sizeof(line_buf), "%s (%d,Ch:%d)", rid_to_display.c_str(), latest_entry.rssi, latest_entry.channel);
                             dc.println(line_buf);
-                        } else {  // 登録記号がない場合
-                            dc.println("Reg:N/A");
+                            if (!latest_entry.registrationNo.isEmpty()) {  // 登録記号があれば表示
+                                String reg_no_to_display = latest_entry.registrationNo;
+                                // 画面幅に応じて登録記号を切り詰める (例: 最大表示文字数 getCols())
+                                if (reg_no_to_display.length() > (unsigned int)dc.getCols()) {
+                                    reg_no_to_display = reg_no_to_display.substring(0, dc.getCols());
+                                }
+                                snprintf(line_buf, sizeof(line_buf), "Reg:%.*s", dc.getCols() - 4, reg_no_to_display.c_str()); // "Reg:"の分を引く
+                                dc.println(line_buf);
+                            } else {  // 登録記号がない場合
+                                dc.println("Reg:N/A");
+                            }
+                            // Display Lat/Lon
+                            snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
+                            dc.println(line_buf);
+                            // Display Altitudes and Time
+                            char time_str[10] = "N/A Time";
+                            time_t entry_time = latest_entry.timestamp;
+                            struct tm *tm_info = localtime(&entry_time);
+                            if (tm_info) {
+                                 snprintf(time_str, sizeof(time_str), "%02d:%02d:%02d", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
+                            }
+                            snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
+                            dc.println(line_buf);
+                            snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03lu.%06lu",
+                                     (unsigned long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000), // 秒の下3桁
+                                     (unsigned long)(latest_entry.beaconTimestamp % 1000000ULL));       // マイクロ秒6桁
+                            dc.println(line_buf);
+                            displayed_count++;
                         }
-                        // Display Lat/Lon
-                        snprintf(line_buf, sizeof(line_buf), "L:%.3f Lo:%.3f", latest_entry.latitude, latest_entry.longitude);
-                        dc.println(line_buf);
-                        // Display Altitudes and Time
-                        char time_str[10] = "N/A Time";
-                        time_t entry_time = latest_entry.timestamp;
-                        struct tm *tm_info = localtime(&entry_time);
-                        if (tm_info) {
-                             snprintf(time_str, sizeof(time_str), "%02d:%02d:%02d", tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec);
-                        }
-                        snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
-                        dc.println(line_buf);
-                        snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03lu.%06lu",
-                                 (unsigned long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000), // 秒の下3桁
-                                 (unsigned long)(latest_entry.beaconTimestamp % 1000000ULL));       // マイクロ秒6桁
-                        dc.println(line_buf);
-                        displayed_count++;
                     }
                 }
             }
-        }
-        if (displayed_count == 0 && rid_count_available == 0) { // データが全くない場合
-             if (dc.getPrintCursorRow() < dc.getRows()) { // 空き行があれば表示
-                dc.println("No RID data yet.");
-             }
-        } else if (displayed_count == 0 && rid_count_available > 0) { // データはあるが表示できなかった場合(行数不足など)
+            if (displayed_count == 0 && rid_count_available == 0) { // データが全くない場合
+                 if (dc.getPrintCursorRow() < dc.getRows()) { // 空き行があれば表示
+                    dc.println("No RID data yet.");
+                 }
+            } else if (displayed_count == 0 && rid_count_available > 0) { // データはあるが表示できなかった場合(行数不足など)
+                if (dc.getPrintCursorRow() < dc.getRows()) {
+                    dc.println("No space to show RIDs");
+                }
+            }
+            xSemaphoreGive(dataManagerSemaphore);
+        } else {
+            M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for display.\n");
             if (dc.getPrintCursorRow() < dc.getRows()) {
-                dc.println("No space to show RIDs");
+                dc.println("Failed to get data...");
             }
         }
-        xSemaphoreGive(dataManagerSemaphore);
-    } else {
-        M5.Log.printf("[WARNING] Failed to take dataManagerSemaphore in loop for display.\n");
-        if (dc.getPrintCursorRow() < dc.getRows()) {
-            dc.println("Failed to get data...");
-        }
+        dc.show(); // 全ての描画が終わったら、描画キャンバスの内容をLCDに転送
     }
-    dc.show(); // 全ての描画が終わったら、描画キャンバスの内容をLCDに転送
 }

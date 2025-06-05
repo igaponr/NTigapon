@@ -8,6 +8,7 @@
 #include <algorithm> // std::sort
 #include <climits>   // INT_MIN (C++11以降)
 #include <ctime>     // time_t (C++ style)
+#include <ArduinoJson.h>
 
 // 個々のデータエントリを表す構造体
 struct RemoteIDEntry {
@@ -36,7 +37,7 @@ public:
     // 指定時刻(currentTime)から過去1分以内にデータ記録があるRIDのリストを返す
     std::vector<String> getRIDsWithDataInLastMinute(time_t currentTime) const;
     // 指定RIDのすべてのデータを時系列順(古いものから新しいもの)で返す
-    std::vector<RemoteIDEntry> getAllDataForRID(const String& rid) const;
+    std::vector<RemoteIDEntry> getAllDataForRID(const String& rid, size_t max_entries = 0) const;
     // 登録されているRIDの総数を返す
     int getRIDCount() const;
     // インデックスを指定して、該当するRIDの全データ(時系列順)を返す
@@ -55,6 +56,10 @@ public:
     void clearDataForRID(const String& rid);
     // RSSI降順でソートされたRIDのリスト {latest_rssi, rid_string} を取得するヘルパー
     std::vector<std::pair<int, String>> getSortedRIDsByRSSI() const;
+    // count: 上位何件のRIDか (今回は1で固定利用を想定)
+    // max_log_entries: 1つのRIDに対してJSONに含める最大エントリ数
+    String getJsonForTopRSSI(int count, size_t max_log_entries) const;
+    String getJsonForRegistrationNo(const String& regNo, size_t max_log_entries) const;
 
 private:
     // RIDごとのデータと設定を保持する内部構造体
@@ -86,6 +91,7 @@ private:
     bool isTargetRID(const String& rid) const {
         return rid == _target_rid_value;
     }
+    void _populateJsonEntry(JsonObject jsonObj, const RemoteIDEntry& entry) const;
 };
 
 #endif // REMOTE_ID_DATA_MANAGER_H
