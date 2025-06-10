@@ -178,7 +178,7 @@ private:
     String _target_rid_value; ///< 特別扱いするRIDの識別子。このRIDはより多くのデータを保持します
 
     static const size_t TARGET_RID_MAX_DATA = 1200; ///< `_target_rid_value` に指定されたRIDが保持するデータエントリの最大数
-    static const size_t OTHER_RID_MAX_DATA = 10;   ///< `_target_rid_value` 以外のRIDが保持するデータエントリの最大数
+    static const size_t OTHER_RID_MAX_DATA = 1;   ///< `_target_rid_value` 以外のRIDが保持するデータエントリの最大数
     static const time_t ONE_MINUTE_IN_SECONDS = 60; ///< 1分間の秒数 (定数)
 
     /// @brief RID文字列をキーとして、RIDDataContainerを値とするマップ
