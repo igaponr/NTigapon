@@ -22,7 +22,7 @@
 #include <Arduino.h>
 #include <string.h>
 #include <ctime>
-#include <M5StickCPlus2.h>
+#include <M5Unified.h>
 #include "esp_wifi.h"          // ESP-IDF Wi-Fi Library
 #include "esp_mac.h"           // ESP-IDF MAC Address Utilities
 #include "nvs_flash.h"         // ESP-IDF Non-Volatile Storage (未使用だが標準的にインクルードされることあり)
@@ -36,7 +36,7 @@
                                            // SEND_MODE_TOP_RSSI を 0 にすると指定登録記号モードになります
 
 const char* TARGET_REG_NO_FOR_JSON = "JA.TEST012345"; ///< 指定登録記号モードの場合にJSON送信対象とする登録記号
-const size_t MAX_ENTRIES_IN_JSON = 600; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
+const size_t MAX_ENTRIES_IN_JSON = 40; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
 RemoteIDDataManager dataManager(""); ///< リモートIDデータを管理するクラスのインスタンス
 M5CanvasTextDisplayController* displayController_ptr = nullptr; ///< ディスプレイ表示を制御するクラスのポインタ
 
@@ -447,6 +447,7 @@ void setup()
 void loop()
 {
     M5.update(); // M5Unifiedのボタン状態などを更新
+    Print& log_stream = Serial;
     if (!displayController_ptr) return; // displayControllerが初期化失敗していたら何もしない
     M5CanvasTextDisplayController& dc = *displayController_ptr; // エイリアス
     // --- ボタンA: JSONデータをシリアル送信 ---
@@ -456,37 +457,22 @@ void loop()
         dc.setCursor(0,0);
         dc.println("BTN_A: Sending JSON...");
         dc.show();
-        String json_string_to_send;
-        // セマフォで保護しながらdataManagerからJSON文字列を取得
         if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
 #           if SEND_MODE_TOP_RSSI == 1
-                // RSSI上位1件のRIDの全履歴データをJSONで取得
                 M5.Log.printf("Mode: Top RSSI, Max Entries: %u\n", MAX_ENTRIES_IN_JSON);
-                json_string_to_send = dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON);
+                dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON, log_stream);
 #           else
-                // 指定された登録記号のRIDの全履歴データをJSONで取得
                 M5.Log.printf("Mode: Reg No '%s', Max Entries: %u\n", TARGET_REG_NO_FOR_JSON, MAX_ENTRIES_IN_JSON);
-                json_string_to_send = dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON);
+                dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON, log_stream);
 #           endif
             xSemaphoreGive(dataManagerSemaphore);
-            if (json_string_to_send.length() > 2 && json_string_to_send != "{}") { // "{}" は空のJSONオブジェクト
-                M5.Log.printf("%s\n", json_string_to_send.c_str()); // シリアルにJSON出力 (M5.Logは内部でSerialを使用)
-                M5.Log.printf("JSON data sent (%d bytes).\n", json_string_to_send.length());
-                dc.clearDrawingCanvas();
-                dc.setCursor(0,0);
-                dc.println("JSON Sent via Serial!");
-                dc.println("Check PC.");
-                dc.show();
-                delay(2500); // 送信完了メッセージ表示時間
-            } else {
-                M5.Log.println("No data to send or JSON generation failed (empty JSON).");
-                dc.clearDrawingCanvas();
-                dc.setCursor(0,0);
-                dc.println("No JSON data found");
-                dc.println("or generation failed.");
-                dc.show();
-                delay(2500);
-            }
+            M5.Log.println("JSON data streamed to Serial.");
+            dc.clearDrawingCanvas();
+            dc.setCursor(0,0);
+            dc.println("JSON Sent (Streamed)");
+            dc.println("Check PC.");
+            dc.show();
+            delay(2500);
         } else {
             M5.Log.println("[ERROR] Could not obtain semaphore for JSON data generation.");
             dc.clearDrawingCanvas();

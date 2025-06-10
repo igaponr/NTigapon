@@ -1,4 +1,4 @@
-#include <M5StickCPlus2.h>
+#include <M5Unified.h>
 
 /**
  * @class M5CanvasTextDisplayController
