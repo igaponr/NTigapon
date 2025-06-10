@@ -438,6 +438,8 @@ void setup()
     dc.println("B: Ch Lock");
     dc.println("C: Reset Device");
     dc.show(); // 描画内容をLCDに反映
+    //M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_VERBOSE);
+    //M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_NONE);
     delay(3000); // 初期メッセージ表示時間
 }
 
@@ -584,24 +586,45 @@ void loop()
         // --- 画面表示更新 ---
         dc.clearDrawingCanvas(); // 描画キャンバスをクリア
         dc.setCursor(0, 0);      // カーソルを左上にリセット
-        int current_rid_count = 0;
-        // セマフォで保護しながらdataManagerからRID数を取得
-        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-            current_rid_count = dataManager.getRIDCount();
+        int current_rid_count_total = 0; // データストア内の総RID数
+        int top_rid_entry_count = 0;   // Top RSSIのRIDが持つエントリ数
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) { // セマフォ取得時間を少し伸ばす可能性も考慮
+            current_rid_count_total = dataManager.getRIDCount();
+            // Top RSSIのRIDのエントリ数を取得 (SEND_MODE_TOP_RSSI == 1 の場合)
+            // #if SEND_MODE_TOP_RSSI == 1 // このプリプロセッサはJSON送信モード用なので、表示は常にTopRSSIを基準にするか、別途指定が必要
+                std::vector<std::pair<int, String>> sorted_rids = dataManager.getSortedRIDsByRSSI();
+                if (!sorted_rids.empty()) {
+                    String top_rid_str = sorted_rids[0].second;
+                    // getAllDataForRIDで全件取得し、そのサイズを見るのが確実
+                    // (max_entries=0 は全件取得を意味する)
+                    std::vector<RemoteIDEntry> entries = dataManager.getAllDataForRID(top_rid_str, 0);
+                    top_rid_entry_count = entries.size();
+                }
+            // #endif
+            // もしSEND_MODE_TOP_RSSI が 0 の場合、TARGET_REG_NO_FOR_JSON のエントリ数を表示するなら、
+            // そのためのロジックもここに追加する必要がある。
+            // ここでは簡略化のため、常にTop RSSIのエントリ数を表示対象とする。
             xSemaphoreGive(dataManagerSemaphore);
         } else {
-            M5.Log.println("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.");
+            M5.Log.println("[WARNING] Failed to take dataManagerSemaphore in loop for display counts.");
         }
+
         // ヘッダ情報表示
-        char header_buf[80];
+        char header_buf[120];
         if (channelLockModeActive) {
             if (lockedChannel != -1) {
-                snprintf(header_buf, sizeof(header_buf), "Ch:%2d(L) RIDs:%d H:%u", lockedChannel, current_rid_count, ESP.getFreeHeap());
+                // Ch:XX(L) RIDs:Y H:ZZZZ Ents:W
+                snprintf(header_buf, sizeof(header_buf), "Ch:%2d(L) RIDs:%d H:%u Ents:%d",
+                         lockedChannel, current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
             } else {
-                snprintf(header_buf, sizeof(header_buf), "Ch:Lock? RIDs:%d H:%u", current_rid_count, ESP.getFreeHeap()); // 固定試行中だが未確定
+                // Ch:Lock? RIDs:Y H:ZZZZ Ents:W
+                snprintf(header_buf, sizeof(header_buf), "Ch:Lock? RIDs:%d H:%u Ents:%d",
+                         current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
             }
         } else {
-            snprintf(header_buf, sizeof(header_buf), "Ch:%2d(S) RIDs:%d H:%u", channel, current_rid_count, ESP.getFreeHeap()); // (S)can mode
+            // Ch:XX(S) RIDs:Y H:ZZZZ Ents:W
+            snprintf(header_buf, sizeof(header_buf), "Ch:%2d(S) RIDs:%d H:%u Ents:%d",
+                     channel, current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
         }
         dc.println(header_buf);
         // 区切り線表示
@@ -666,9 +689,9 @@ void loop()
                             snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
                             dc.println(line_buf);
                             // 5行目: Beacon TSF タイムスタンプ (下位桁のみ表示)
-                            snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03lu.%06lu",
-                                     (unsigned long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000), // 秒部分の下3桁 (TSFはマイクロ秒単位)
-                                     (unsigned long)(latest_entry.beaconTimestamp % 1000000ULL));       // マイクロ秒部分6桁
+                            snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03llu.%06llu",
+                                     (unsigned long long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000ULL),
+                                     (unsigned long long)(latest_entry.beaconTimestamp % 1000000ULL));
                             dc.println(line_buf);
                             displayed_count++;
                         }
