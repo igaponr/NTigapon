@@ -354,6 +354,7 @@ void wifi_sniffer_init(void) {
 void setup()
 {
     M5.begin(); // M5Unifiedの標準的な初期化 (ディスプレイ初期化より先に行うのが一般的)
+    Serial.begin(115200);
     // M5CanvasTextDisplayController の初期化
     displayController_ptr = new M5CanvasTextDisplayController(M5.Display);
     if (!displayController_ptr) {
@@ -447,7 +448,6 @@ void setup()
 void loop()
 {
     M5.update(); // M5Unifiedのボタン状態などを更新
-    Print& log_stream = Serial;
     if (!displayController_ptr) return; // displayControllerが初期化失敗していたら何もしない
     M5CanvasTextDisplayController& dc = *displayController_ptr; // エイリアス
     // --- ボタンA: JSONデータをシリアル送信 ---
@@ -460,10 +460,10 @@ void loop()
         if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
 #           if SEND_MODE_TOP_RSSI == 1
                 M5.Log.printf("Mode: Top RSSI, Max Entries: %u\n", MAX_ENTRIES_IN_JSON);
-                dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON, log_stream);
+                dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON, Serial);
 #           else
                 M5.Log.printf("Mode: Reg No '%s', Max Entries: %u\n", TARGET_REG_NO_FOR_JSON, MAX_ENTRIES_IN_JSON);
-                dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON, log_stream);
+                dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON, Serial);
 #           endif
             xSemaphoreGive(dataManagerSemaphore);
             M5.Log.println("JSON data streamed to Serial.");

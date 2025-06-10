@@ -233,16 +233,15 @@ void RemoteIDDataManager::clearDataForRID(const String& rid) {
  */
 void RemoteIDDataManager::_populateJsonEntry(JsonObject jsonObj, const RemoteIDEntry& entry) const {
     jsonObj["rssi"] = entry.rssi;
-    jsonObj["ts"] = entry.timestamp;           // "timestamp" -> "ts" (短縮)
-    // beaconTimestamp (uint64_t) は非常に大きな数値になる可能性があるため、文字列として格納
-    // snprintfで安全に文字列化する
-    char beaconTsStr[21]; // uint64_tの最大桁数(20桁) + NUL終端文字
-    snprintf(beaconTsStr, sizeof(beaconTsStr), "%llu", entry.beaconTimestamp);
-    jsonObj["bTs"] = beaconTsStr;              // "beaconTimestamp" -> "bTs" (短縮)
+    // ts: UNIX timestamp (seconds) to milliseconds
+    jsonObj["ts"] = (unsigned long long)entry.timestamp * 1000ULL;
+    // bTs: beaconTimestamp (microseconds) to milliseconds (truncate)
+    jsonObj["bTs"] = entry.beaconTimestamp / 1000ULL;
     jsonObj["ch"] = entry.channel;
-    if (!entry.registrationNo.isEmpty()) {     // registrationNoが空文字列でなければJSONに追加
-        jsonObj["reg"] = entry.registrationNo; // "registrationNo" -> "reg" (短縮)
-    }
+    // registrationNo ("reg") is now handled at the root level of the JSON object.
+    // if (!entry.registrationNo.isEmpty()) {
+    //     jsonObj["reg"] = entry.registrationNo; // "registrationNo" -> "reg" (短縮)
+    // }
     jsonObj["lat"] = entry.latitude;
     jsonObj["lon"] = entry.longitude;
     jsonObj["pAlt"] = entry.pressureAltitude;
@@ -257,12 +256,11 @@ void RemoteIDDataManager::_populateJsonEntry(JsonObject jsonObj, const RemoteIDE
  * @param output_stream 出力ストリームを受け取る
  */
 void RemoteIDDataManager::getJsonForTopRSSI(int count, size_t max_log_entries, Print& output_stream) const {
-    const size_t jsonDocSize = JSON_OBJECT_SIZE(2) +
-                               JSON_OBJECT_SIZE(8) * max_log_entries +
+    const size_t jsonDocSize = JSON_OBJECT_SIZE(3) + // For root: rid, reg (optional), elm
+                               JSON_OBJECT_SIZE(8) * max_log_entries + // For each entry in elm (rssi,ts,bTs,ch,lat,lon,pAlt,gAlt)
                                JSON_ARRAY_SIZE(max_log_entries) +
-                               1024;
-    DynamicJsonDocument doc(jsonDocSize); // ここは毎回確保のまま（断片化リスクは残る）
-                                          // より良くするにはdocもメンバ変数化してclear & 再利用
+                               1024; // Extra buffer
+    DynamicJsonDocument doc(jsonDocSize);
     JsonObject root = doc.to<JsonObject>();
     std::vector<std::pair<int, String>> sorted_rids = getSortedRIDsByRSSI();
     if (sorted_rids.empty() || count < 1) {
@@ -270,21 +268,27 @@ void RemoteIDDataManager::getJsonForTopRSSI(int count, size_t max_log_entries, P
         output_stream.println();
         return;
     }
-    String rid_str = sorted_rids[0].second;
+    String rid_str = sorted_rids[0].second; // Get the top RID
     std::vector<RemoteIDEntry> entries_for_rid = getAllDataForRID(rid_str, max_log_entries);
+    // Always set rid if available
+    root["rid"] = rid_str;
+    // Get the registration number from the overall latest entry for this RID
+    RemoteIDEntry overall_latest_entry;
+    if (getLatestEntryForRID(rid_str, overall_latest_entry)) {
+        if (!overall_latest_entry.registrationNo.isEmpty()) {
+            root["reg"] = overall_latest_entry.registrationNo;
+        }
+    }
+    JsonArray elmArray = root.createNestedArray("elm"); // Changed "entries" to "elm"
     if (!entries_for_rid.empty()) {
-        root["rid"] = rid_str;
-        JsonArray entriesArray = root.createNestedArray("entries");
         for (const auto& entry_item : entries_for_rid) {
-            JsonObject entryObj = entriesArray.createNestedObject();
+            JsonObject entryObj = elmArray.createNestedObject();
             _populateJsonEntry(entryObj, entry_item);
         }
-        serializeJson(doc, output_stream);
-        output_stream.println();
-    } else {
-        output_stream.print("{}");
-        output_stream.println();
     }
+    // else, elmArray will be empty, which is correct if no log entries are selected.
+    serializeJson(doc, output_stream);
+    output_stream.println();
 }
 
 /**
@@ -295,10 +299,10 @@ void RemoteIDDataManager::getJsonForTopRSSI(int count, size_t max_log_entries, P
  * @param output_stream 出力ストリームを受け取る
  */
 void RemoteIDDataManager::getJsonForRegistrationNo(const String& regNo, size_t max_log_entries, Print& output_stream) const {
-    const size_t jsonDocSize = JSON_OBJECT_SIZE(2) +
-                               JSON_OBJECT_SIZE(8) * max_log_entries +
+    const size_t jsonDocSize = JSON_OBJECT_SIZE(3) + // For root: rid, reg, elm
+                               JSON_OBJECT_SIZE(8) * max_log_entries + // For each entry in elm
                                JSON_ARRAY_SIZE(max_log_entries) +
-                               1024;
+                               1024; // Extra buffer
     DynamicJsonDocument doc(jsonDocSize);
     JsonObject root = doc.to<JsonObject>();
     if (regNo.isEmpty()) {
@@ -307,24 +311,26 @@ void RemoteIDDataManager::getJsonForRegistrationNo(const String& regNo, size_t m
         return;
     }
     bool found = false;
-    for (const auto& pair : _data_store) { // 'pair' を使ってイテレート
-        const String& rid_str_from_pair = pair.first; // RID文字列を取得
-        const RIDDataContainer& container = pair.second; // 'container' を宣言
+    for (const auto& pair : _data_store) {
+        const String& rid_str_from_pair = pair.first;
+        const RIDDataContainer& container = pair.second;
+        // Check the latest entry's registration number
         if (!container.entries.empty() && container.entries.back().registrationNo == regNo) {
-            std::vector<RemoteIDEntry> entries_for_rid = getAllDataForRID(rid_str_from_pair, max_log_entries); // 'entries_for_rid' を宣言・初期化
-
+            std::vector<RemoteIDEntry> entries_for_rid = getAllDataForRID(rid_str_from_pair, max_log_entries);
+            root["rid"] = rid_str_from_pair;
+            root["reg"] = regNo; // The regNo we searched for
+            JsonArray elmArray = root.createNestedArray("elm"); // Changed "entries" to "elm"
             if (!entries_for_rid.empty()) {
-                root["rid"] = rid_str_from_pair;
-                JsonArray entriesArray = root.createNestedArray("entries");
                 for (const auto& entry_item : entries_for_rid) {
-                    JsonObject entryObj = entriesArray.createNestedObject();
+                    JsonObject entryObj = elmArray.createNestedObject();
                     _populateJsonEntry(entryObj, entry_item);
                 }
-                serializeJson(doc, output_stream);
-                output_stream.println();
-                found = true;
-                break;
             }
+            // else: elmArray will be empty, which is correct if no log entries are selected.
+            serializeJson(doc, output_stream);
+            output_stream.println();
+            found = true;
+            break;
         }
     }
     if (!found) {
