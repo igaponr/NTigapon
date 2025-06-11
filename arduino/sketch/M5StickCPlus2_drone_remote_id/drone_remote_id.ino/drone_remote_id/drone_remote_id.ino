@@ -36,7 +36,7 @@
                                            // SEND_MODE_TOP_RSSI を 0 にすると指定登録記号モードになります
 
 const char* TARGET_REG_NO_FOR_JSON = "JA.TEST012345"; ///< 指定登録記号モードの場合にJSON送信対象とする登録記号
-const size_t MAX_ENTRIES_IN_JSON = 40; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
+const size_t MAX_ENTRIES_IN_JSON = 400; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
 RemoteIDDataManager dataManager(""); ///< リモートIDデータを管理するクラスのインスタンス
 M5CanvasTextDisplayController* displayController_ptr = nullptr; ///< ディスプレイ表示を制御するクラスのポインタ
 
@@ -358,15 +358,29 @@ void setup()
     // M5CanvasTextDisplayController の初期化
     displayController_ptr = new M5CanvasTextDisplayController(M5.Display);
     if (!displayController_ptr) {
-        M5.Log.printf("[FATAL] Failed to allocate Display Controller!\n");
+        Serial.println("[FATAL] Failed to allocate Display Controller!");
         while(1); // 致命的エラーなので停止
     }
     // 初期設定: 文字サイズ1, 行ラップ無効, 文字色GREEN, 背景色BLACK, 画面回転1 (横向き)
     if (!displayController_ptr->begin(1, false, GREEN, BLACK, 1)) {
-        M5.Log.printf("[FATAL] Failed to initialize Display Controller!\n");
-        while(1); // 致命的エラーなので停止
+        Serial.println("[FATAL] Failed to initialize Display Controller with rotation 1!");
+        // ここで失敗する場合、begin()内部のcreateSpriteで問題が起きている可能性
+        // M5CanvasTextDisplayController.h の _recreateCanvases() 内の
+        // Serial.printf("Error: Failed to create canvas1/2...") のログが出るか確認
+        while(1);
     }
     M5CanvasTextDisplayController& dc = *displayController_ptr; // 以降、dc経由でアクセスするためのエイリアス
+    Serial.println("Attempted to show initial canvas content.");
+    // ヒープ残量を表示
+    uint32_t freeHeap = ESP.getFreeHeap();
+    uint32_t minFreeHeap = ESP.getMinFreeHeap(); // プログラム実行中の最小ヒープ残量
+    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT); // 確保可能な最大の連続ブロック
+    Serial.println("--------------------------------------");
+    Serial.println("Heap Memory Status at end of setup():");
+    Serial.printf("  Free Heap: %u bytes\n", freeHeap);
+    Serial.printf("  Min Free Heap (since boot): %u bytes\n", minFreeHeap);
+    Serial.printf("  Largest Free Block: %u bytes\n", largestBlock);
+    Serial.println("--------------------------------------");
     // 画面に表示可能な最大RID数を計算 (ヘッダ行数を考慮)
     int available_rows_for_rids = dc.getRows() - HEADER_LINES;
     if (available_rows_for_rids < 0) available_rows_for_rids = 0;
