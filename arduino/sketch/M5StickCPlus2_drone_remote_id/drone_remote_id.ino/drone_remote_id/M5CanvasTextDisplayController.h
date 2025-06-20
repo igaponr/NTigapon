@@ -1,4 +1,4 @@
-#include <M5StickCPlus2.h>
+#include <M5Unified.h>
 
 /**
  * @class M5CanvasTextDisplayController
@@ -418,6 +418,7 @@ private:
      * @brief LCDの現在の幅と高さに合わせて、2つのキャンバスのスプライトを再作成します
      *
      * 既存のスプライトは解放され、新しいサイズのものが確保されます
+     * 高さは、現在のヒープから計算された値が指定される
      * 作成後、_drawingCanvas と _activeCanvas に適切に割り当てられ、
      * 描画キャンバスはクリアされ、アクティブキャンバスも背景色で塗りつぶされます
      *
@@ -427,26 +428,78 @@ private:
         _deleteCanvases(); // 既存のキャンバススプライトを解放 (メモリリーク防止)
         // M5Canvasオブジェクト (_canvas1, _canvas2) はコンストラクタでnewされている前提です
         // ここでは、それらのオブジェクトに対してスプライトを作成します
-        int w = _lcd.width();
-        int h = _lcd.height();
+        int original_w = _lcd.width();
+        int original_h = _lcd.height();
+        int w = original_w; // 幅はLCDに合わせる前提
+        int h = original_h; // まずはLCDの高さで試す
+        const int bytes_per_pixel = 2; // RGB565の場合
+        const int num_canvases = 2;    // ダブルバッファリング
+        const size_t safety_margin = 1024 * 10; // 10KB程度の安全マージン (調整が必要)
+        Serial.printf("_recreateCanvases: Original LCD w=%d, h=%d\n", original_w, original_h);
+        // 利用可能な最大の連続メモリブロックを取得
+        size_t largest_free_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        Serial.printf("_recreateCanvases: Largest free block: %u bytes\n", largest_free_block);
+        // 必要な総メモリ量 (マージン込み)
+        size_t required_memory_for_full_height = (size_t)w * h * bytes_per_pixel * num_canvases + safety_margin;
+        Serial.printf("_recreateCanvases: Required memory for full height (%d x %d x %d canvases) + margin: %u bytes\n", w, h, num_canvases, required_memory_for_full_height);
+        if (largest_free_block < required_memory_for_full_height) {
+            Serial.println("_recreateCanvases: Not enough memory for full height canvases. Attempting to calculate reduced height.");
+            // マージンを引いた、キャンバス2枚で利用できる最大メモリ
+            size_t available_for_canvases = (largest_free_block > safety_margin) ? (largest_free_block - safety_margin) : 0;
+            if (available_for_canvases > 0) {
+                // 1枚のキャンバスあたりで利用できる最大メモリ
+                size_t memory_per_canvas = available_for_canvases / num_canvases;
+                // 計算上の最大高さ
+                int calculated_h = memory_per_canvas / (w * bytes_per_pixel);
+                Serial.printf("_recreateCanvases: Available for canvases: %u, Memory per canvas: %u, Calculated h: %d\n",
+                              available_for_canvases, memory_per_canvas, calculated_h);
+                if (calculated_h > 0) {
+                    h = calculated_h;
+                    // 高さはある程度の単位（例：フォントの高さの倍数など）に丸めることも検討できる
+                    // h = (h / _fontHeight) * _fontHeight; // もし_fontHeightがこの時点で確定していれば
+                    Serial.printf("_recreateCanvases: Reducing canvas height to: %d\n", h);
+                } else {
+                    Serial.println("_recreateCanvases: Calculated height is 0 or less. Canvas creation will likely fail.");
+                    h = 0; // 非常に小さい値、またはエラーとして扱う
+                }
+            } else {
+                Serial.println("_recreateCanvases: Not enough memory even after safety margin. Canvas creation will likely fail.");
+                h = 0;
+            }
+        }
+        if (h <= 0) { // 高さが無効な場合は失敗とする
+            Serial.println("Error: Calculated canvas height is invalid.");
+            return false;
+        }
+        Serial.printf("Attempting to create canvases with w=%d, h=%d\n", w, h);
         if (!_canvas1 || !_canvas1->createSprite(w, h)) {
             Serial.printf("Error: Failed to create canvas1 (%d x %d)\n", w, h);
             return false;
         }
         if (!_canvas2 || !_canvas2->createSprite(w, h)) {
             Serial.printf("Error: Failed to create canvas2 (%d x %d)\n", w, h);
-            if (_canvas1) _canvas1->deleteSprite(); // canvas1が成功していた場合、それも解放
+            if (_canvas1) _canvas1->deleteSprite();
             return false;
         }
-        // スプライト作成後、描画用と表示用にポインタを割り当てます
-        // 初期状態では_canvas1を描画用、_canvas2を表示用(アクティブ)とすることが多いですが、
-        // show()でスワップされるので、どちらでも機能します
-        // begin()やsetRotation()の直後では、どちらも同じ状態(クリアされている)なので、
-        // どちらを_drawingCanvasにしても問題ありません
         _drawingCanvas = _canvas1;
         _activeCanvas = _canvas2;
-        _clearAndResetDrawingCanvas();          // 新しい描画キャンバスをクリア＆カーソルリセット
-        if (_activeCanvas) _activeCanvas->fillSprite(_bgColor); // アクティブキャンバスも背景色でクリア
+        _clearAndResetDrawingCanvas();
+        if (_activeCanvas) _activeCanvas->fillSprite(_bgColor);
+        // ★重要: キャンバスサイズが変わったので、行数・列数も再計算する必要がある
+        // setTextSize内で _rows, _cols が再計算されるが、
+        // その際の _lcd.height() は物理LCDの高さを使う。
+        // しかし、我々のキャンバスはそれより小さいかもしれない。
+        // このクラスの設計では、_rows, _cols は _lcd.height()/_fontHeight を基準にしているので、
+        // この動的な高さ変更とどう整合性を取るかは慎重な設計が必要。
+        // 一つの方法は、このクラスで扱う「仮想的な画面の高さ」を動的に変更したhに合わせること。
+        // ただし、M5GFXの他の機能との兼ね合いも出てくる。
+        //
+        // ここでは、ひとまず _rows の計算に影響を与えず、
+        // setTextSize が物理LCDサイズベースで計算する前提のままにする。
+        // 表示がキャンバスの下にはみ出る可能性は、printやsetTextのロジックで
+        // 描画先キャンバスの実際の高さ (h) を超えないようにクリッピングする必要が出てくる。
+        // または、_rows を h / _fontHeight で上書きする。
+        // current_canvas_height = h; // メンバ変数で保持など
         return true;
     }
 

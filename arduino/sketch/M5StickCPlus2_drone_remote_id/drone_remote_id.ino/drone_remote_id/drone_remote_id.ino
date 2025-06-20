@@ -9,20 +9,15 @@
  * @Dependent Library
  *  - M5GFX: https://github.com/m5stack/M5GFX
  *  - M5Unified: https://github.com/m5stack/M5Unified
- *  - M5StickCPlus2: https://github.com/m5stack/M5StickCPlus2
  * @note このプログラムはWi-Fi Beaconフレームをスキャンし、ASTM F3411-19規格に準拠した
  *       リモートID (RID) データを抽出・表示します。
  *       取得したデータはシリアル経由でJSON形式で出力することも可能です
  *       PlantUML Class図: https://www.plantuml.com/plantuml/uml/bHbjRzku-Rj_1US15pjpSjTkEmn65rmQ9sss92rYNtl0C0YqzDZcbIPr91N7Atg_VNn8cQPCMTVcGqpnUN-dg9-qeSfKQzxxard16eWkQGwSpdizmmm7SgcAYWb97c4j3P3R2NclvA-G6t96hZZLcamONIgwxlKivIUw17B_zwcnopisr-HpZzY_717j_fkRNyYhLnQWgDfUN7Ye-_iBqM0UfQ66IJ6m4iq_CaDKlJ6Cy3QiCAl1a8o9HOhsLy2MAzC2M33Efxa2y7nV_6WPvv9B5NDTHjAHXTSWPlEPphLHD3TVoFdvEVd-U_BEh42HDPYLBBJ3_D9hc7j5nHFLnomE20Fdc5EoN3p7AkKAg85fgPY1GQsujtv4Te_UQ5HuBYMFY0lW48XZhcMbLtkUVtrfcJoFo6wvFOAwK_MKw5ADI1TbSBcdh6g4rEKQp0oUpPJzpwb2j5sqm6-aC0w-i8iOZizl6q57bnmWV4H_fV1Om8JQ_7SI2borg725gk-JPx5qjen8s9dxdQycFVJL8-IcDHpxvMQ_jF4_xjL2qStKA2QMWrmAROX_-8vezziPky3WQaKZfIl1hcG1xQIZkbJI-6WmLvNIKdKashUKrfVGONPDAUamtjQuu2BWUmip2KnWLrEOHKGkQfpnJe1_hka7bOQ2pBTa2efHFhBrUtudbyDOiQafhieoqQklJJ4UFq5kf7erk-WJgX7rWzkmAirWNN9geA6l9ohWjmeYcWa-TvEiQVdgtwCFWUIUbjq49MLMhHUZsSj0yvwouuePjeRCEDIPNSuGSLl29MTKMymqKF_IKbYdM9y47X5aF9vi1Lsp71ycCg_M83ptUgCPj5OE-F_T7EUI9moFNqbxgHJT1bBt55F6DbrLsiWrLWJQaxHxrrAOjcxRNabXbEGSLDBtZsBwOV0TAJmWBfFVkmbZr3aicHWmmGoZVDTbNGySaNhtZWdug6ZfHyU8c5st6eU-DhADBTcgoNVJCepAT0WrHhewn1-HGavNSkEf6jJfVD11_IPLYcu5RJmcziQmYZiXMlfjbFcAgjD0bpQubB8nHx69358Tq6OqB3C9SYAs0zKYaRm30JlO4_OhNCofXWxSGbPp3dlq0dAsflmzfpdeutHST9kNeji-FoGdTP-NJw2uf8Kc2wbsAB6ZRS071vxVfUzW4t8uniWvK3LHT6FLgKzPm_OpOTvCy2DOHqTxIXxZlLvsOeMJvqQd1rU4MEeZ43UPVFfPyZ_4iOnQSKA9jKCxpyHdPpWVdwW1SW_hEIXjj_PGal6y61FVp-BjtCNZnPY4KsKAVNa4IdF3di03Zg0KFkgTECfwF9WR94kURfhQFmbWV_nCGE7WcK1ue-d6aBJzDWZdomvWsSY5H6ZPI8C0JcE8fwt36FeN2Uz2Y8i8lGYv0Xf3IMgOgyHBKJo21fDMP5DBT_3Cnwxp1MRHcvKsgifD_J9wExaMHcqRirLfpGxp68yhsj2rzRe_kJG69Ssbc0KCvzyV_nRZe39203zags39j56kFXxakEvz4GAt85CLC2OBBgc98L8iZu1A1LfN2YxvCU9bgOy2cvu93auXgfvNHdkdk64_qtlxHzPiZuE6edsD3Zz2wshn8xGdh4iQbilTSXZ7y8HCOC44aCVRoOGQYaSOQfyLaPNHh012HK7ci90AWjQ8U4y5NOAA4Y5b4US22ACOM9kYWtJ32nSHyfe-PpYjqfc5be8sMKYj5DIHOOcA0ojf6WcAOqIBmeV7-xgXx7VEdkqmkMX8VTJqGnlyS5nJXSsU5GVA8CL0iI89Vl35AAskqV6Y6ZLgQPIKqDUcs2NV0vRX8HchjnFzaPaLMd4hxgWszqnK1WPvfHG8WmhkbCPc4x-aUHqkcWmlEKTUDr9Prgr-mImAQOVnJJcd6TZG-4fMmhGFOvJzUdih2dWUCFoFED_AtwlQoYRjO2kgsorD6hrZV-UgmGdky14WVDnCxZQ6Vd1ubm-Iirrd80uIOIgLWGBJuVNsSJgz7HpwRFyMxDAo3lw1y_35q4gSoTBno35GpdK-x5mkqz2dFequFJQoVz3MPh-PjG_1bQ-oIDiqeHBaHA5cZt3gUJRVS0JqdILJhCYUAAyWqVgCVDQ66fP_8RFBnpVNiyp6ARk__2MRNCukT-xmHfD_aXSlV_YXZVRTxEtrOpVfZqSe7wwp-zk7dsVNsUr3Dhs-UlSmcTR4lZbuuiQXY1gQQIELjITSkNZ3Had3lo0dPBPYcWYv8GeMw2GZYLa1WMS3Ib3knrbmgoLua6IDywyVUVW1j862J1skzNEVQCWnLcG52hxwICVqZ2hV30v3p8gs4rmfome77QQj7q-_-kkLSNJF4kgwRNGDqokywISm-Ug6SMZUb1LA2iYK8yzOSSw4TDSojq9w4dijunUDs_GtNCuf9n-eOdJEGOy3v7TIxEVUk6qOngY7jofPQTIu-yRcj5tK56nIh5oAXELRAWgE2NL2RXJ0u-pTb9Xj2H67vB3fjqEwRjY2PTXxqDcD9ySMT9cvJMIhprSH2_lA7PvkAk4oHu-RxwjLsUYqNChcXcEj1LiiG6KOIZ3PoXcb1lDgCIPFaXMd8sTKhLsfv9hfl9ALpifFnYcMcQDCcM1s_CN9_1Pu2QfE-zqrB1DTkWpZZF_pxh1u3rhJ9MGhe4KAdS9lMMvu0l1orZJFLeNAJ0e73dXXwTYsmQU66clxWjDb2doRVSXedbUAvjiK-ZgRTa2nss4QryMLtcQ7cWcqhWyfA1Le44Qx9hIcJ8GBR-tmoG3hReWN8B1Fcbkpk_opBLMxKtgbGNTNHw16z9RYQx2dN4kI-yQfoKTsTiE8Yp3UwdEvPBbZi_8PuTsW0uF1cgfFKDY0cPNr4jLMNTzVT_tMMtUYKKRZDizVF56bKP2NwpFALVHUnnD_vtz21gY7MLMw_Xem94oZDmhaXAekBITF1w9mSS7kTs8JyyowWLDNVIjMQjpfTRgGI4lJVz6lFw2ElTS72XR3Fo0yHSAN_H0XI-lVsFNtSYDqDxLj61VrQF0olmRVNJa55PyOhVrpNj_gEVSKCA-MG_H6Iq8uqcI8Oi4pe-FHIzQqFBSyfapaq00mJIXPk_F8YBpdL9YVx-_m5h7Ys3aMbft1GiZbkfIQOIYGqVLpoLdE3D-sZWdlpKF5-cJSa3smMX5tr1bQbc_b1fvG2rze9Te0V47Osee2LBEFvlQ9LAI_I_m-KL62e6PtO4vSUg5TAALW2d8J6U0TMqivqLu3ruO9Mn01K40nifpc5NO60yBZEX-H0d9EbPE8ljELBRYSWJ0eUsRnIWLFJ5QQz8_wXVHRgpjrruPgfwjmfncKy20tX9bTVEOmxdLAEU1uw7zlEHFeY64lPUKJjNb02GbRKaNN8wB0L4eCK-AqAf3g4snhWIFYEEWT2tsSH_Z-5zXu4XUqJhBtb7qZaVzAvqcE8OMFRTreqP7lQp3zbxGQiPV4pWNrj9z48ym09eYxk4b94xjwJIP9d0xWANqlp4i4Tewru7-hew4Y1z_hIgE61rmIvwIq1nHf2_L39-NSy5dNUMZNzPiSmZnfIAfD7U7QVKOS7l5B86J2joE-9KqUsDLozxMKvC5pmnus_ZTALYN6Pe4ud2fcjcGWI-n1b5i-kh8_56-aek-jP_zPiQ80yTz2RiHPz0xHw_q4egZM_Fy0
- * 参考:
- *  - ESP32 Wi-Fi Sniffer: https://lang-ship.com/blog/work/esp32-wifi-sniffer/
- *  - M5StackでWi-Fiパケットキャプチャ: https://qiita.com/kobatan/items/dac5d4696d631003e037
- *  - Interface 2024年2月号 特集「ドローン新技術トライアル」内記事: https://interface.cqpub.co.jp/wp-content/uploads/if2402_041.pdf (主にリモートIDのデータ構造)
  */
 #include <Arduino.h>
 #include <string.h>
 #include <ctime>
-#include <M5StickCPlus2.h>
+#include <M5Unified.h>
 #include "esp_wifi.h"          // ESP-IDF Wi-Fi Library
 #include "esp_mac.h"           // ESP-IDF MAC Address Utilities
 #include "nvs_flash.h"         // ESP-IDF Non-Volatile Storage (未使用だが標準的にインクルードされることあり)
@@ -36,7 +31,7 @@
                                            // SEND_MODE_TOP_RSSI を 0 にすると指定登録記号モードになります
 
 const char* TARGET_REG_NO_FOR_JSON = "JA.TEST012345"; ///< 指定登録記号モードの場合にJSON送信対象とする登録記号
-const size_t MAX_ENTRIES_IN_JSON = 600; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
+const size_t MAX_ENTRIES_IN_JSON = 400; ///< 1つのRIDに対してJSONに含める履歴データの最大エントリ数 (メモリ使用量に影響)
 RemoteIDDataManager dataManager(""); ///< リモートIDデータを管理するクラスのインスタンス
 M5CanvasTextDisplayController* displayController_ptr = nullptr; ///< ディスプレイ表示を制御するクラスのポインタ
 
@@ -354,18 +349,33 @@ void wifi_sniffer_init(void) {
 void setup()
 {
     M5.begin(); // M5Unifiedの標準的な初期化 (ディスプレイ初期化より先に行うのが一般的)
+    Serial.begin(115200);
     // M5CanvasTextDisplayController の初期化
     displayController_ptr = new M5CanvasTextDisplayController(M5.Display);
     if (!displayController_ptr) {
-        M5.Log.printf("[FATAL] Failed to allocate Display Controller!\n");
+        Serial.println("[FATAL] Failed to allocate Display Controller!");
         while(1); // 致命的エラーなので停止
     }
     // 初期設定: 文字サイズ1, 行ラップ無効, 文字色GREEN, 背景色BLACK, 画面回転1 (横向き)
     if (!displayController_ptr->begin(1, false, GREEN, BLACK, 1)) {
-        M5.Log.printf("[FATAL] Failed to initialize Display Controller!\n");
-        while(1); // 致命的エラーなので停止
+        Serial.println("[FATAL] Failed to initialize Display Controller with rotation 1!");
+        // ここで失敗する場合、begin()内部のcreateSpriteで問題が起きている可能性
+        // M5CanvasTextDisplayController.h の _recreateCanvases() 内の
+        // Serial.printf("Error: Failed to create canvas1/2...") のログが出るか確認
+        while(1);
     }
     M5CanvasTextDisplayController& dc = *displayController_ptr; // 以降、dc経由でアクセスするためのエイリアス
+    Serial.println("Attempted to show initial canvas content.");
+    // ヒープ残量を表示
+    uint32_t freeHeap = ESP.getFreeHeap();
+    uint32_t minFreeHeap = ESP.getMinFreeHeap(); // プログラム実行中の最小ヒープ残量
+    size_t largestBlock = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT); // 確保可能な最大の連続ブロック
+    Serial.println("--------------------------------------");
+    Serial.println("Heap Memory Status at end of setup():");
+    Serial.printf("  Free Heap: %u bytes\n", freeHeap);
+    Serial.printf("  Min Free Heap (since boot): %u bytes\n", minFreeHeap);
+    Serial.printf("  Largest Free Block: %u bytes\n", largestBlock);
+    Serial.println("--------------------------------------");
     // 画面に表示可能な最大RID数を計算 (ヘッダ行数を考慮)
     int available_rows_for_rids = dc.getRows() - HEADER_LINES;
     if (available_rows_for_rids < 0) available_rows_for_rids = 0;
@@ -437,6 +447,8 @@ void setup()
     dc.println("B: Ch Lock");
     dc.println("C: Reset Device");
     dc.show(); // 描画内容をLCDに反映
+    //M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_VERBOSE);
+    //M5.Log.setLogLevel(m5::log_target_serial, ESP_LOG_NONE);
     delay(3000); // 初期メッセージ表示時間
 }
 
@@ -456,37 +468,22 @@ void loop()
         dc.setCursor(0,0);
         dc.println("BTN_A: Sending JSON...");
         dc.show();
-        String json_string_to_send;
-        // セマフォで保護しながらdataManagerからJSON文字列を取得
         if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
 #           if SEND_MODE_TOP_RSSI == 1
-                // RSSI上位1件のRIDの全履歴データをJSONで取得
                 M5.Log.printf("Mode: Top RSSI, Max Entries: %u\n", MAX_ENTRIES_IN_JSON);
-                json_string_to_send = dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON);
+                dataManager.getJsonForTopRSSI(1, MAX_ENTRIES_IN_JSON, Serial);
 #           else
-                // 指定された登録記号のRIDの全履歴データをJSONで取得
                 M5.Log.printf("Mode: Reg No '%s', Max Entries: %u\n", TARGET_REG_NO_FOR_JSON, MAX_ENTRIES_IN_JSON);
-                json_string_to_send = dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON);
+                dataManager.getJsonForRegistrationNo(String(TARGET_REG_NO_FOR_JSON), MAX_ENTRIES_IN_JSON, Serial);
 #           endif
             xSemaphoreGive(dataManagerSemaphore);
-            if (json_string_to_send.length() > 2 && json_string_to_send != "{}") { // "{}" は空のJSONオブジェクト
-                M5.Log.printf("%s\n", json_string_to_send.c_str()); // シリアルにJSON出力 (M5.Logは内部でSerialを使用)
-                M5.Log.printf("JSON data sent (%d bytes).\n", json_string_to_send.length());
-                dc.clearDrawingCanvas();
-                dc.setCursor(0,0);
-                dc.println("JSON Sent via Serial!");
-                dc.println("Check PC.");
-                dc.show();
-                delay(2500); // 送信完了メッセージ表示時間
-            } else {
-                M5.Log.println("No data to send or JSON generation failed (empty JSON).");
-                dc.clearDrawingCanvas();
-                dc.setCursor(0,0);
-                dc.println("No JSON data found");
-                dc.println("or generation failed.");
-                dc.show();
-                delay(2500);
-            }
+            M5.Log.println("JSON data streamed to Serial.");
+            dc.clearDrawingCanvas();
+            dc.setCursor(0,0);
+            dc.println("JSON Sent (Streamed)");
+            dc.println("Check PC.");
+            dc.show();
+            delay(2500);
         } else {
             M5.Log.println("[ERROR] Could not obtain semaphore for JSON data generation.");
             dc.clearDrawingCanvas();
@@ -598,24 +595,45 @@ void loop()
         // --- 画面表示更新 ---
         dc.clearDrawingCanvas(); // 描画キャンバスをクリア
         dc.setCursor(0, 0);      // カーソルを左上にリセット
-        int current_rid_count = 0;
-        // セマフォで保護しながらdataManagerからRID数を取得
-        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(10)) == pdTRUE) {
-            current_rid_count = dataManager.getRIDCount();
+        int current_rid_count_total = 0; // データストア内の総RID数
+        int top_rid_entry_count = 0;   // Top RSSIのRIDが持つエントリ数
+        if (xSemaphoreTake(dataManagerSemaphore, pdMS_TO_TICKS(50)) == pdTRUE) { // セマフォ取得時間を少し伸ばす可能性も考慮
+            current_rid_count_total = dataManager.getRIDCount();
+            // Top RSSIのRIDのエントリ数を取得 (SEND_MODE_TOP_RSSI == 1 の場合)
+            // #if SEND_MODE_TOP_RSSI == 1 // このプリプロセッサはJSON送信モード用なので、表示は常にTopRSSIを基準にするか、別途指定が必要
+                std::vector<std::pair<int, String>> sorted_rids = dataManager.getSortedRIDsByRSSI();
+                if (!sorted_rids.empty()) {
+                    String top_rid_str = sorted_rids[0].second;
+                    // getAllDataForRIDで全件取得し、そのサイズを見るのが確実
+                    // (max_entries=0 は全件取得を意味する)
+                    std::vector<RemoteIDEntry> entries = dataManager.getAllDataForRID(top_rid_str, 0);
+                    top_rid_entry_count = entries.size();
+                }
+            // #endif
+            // もしSEND_MODE_TOP_RSSI が 0 の場合、TARGET_REG_NO_FOR_JSON のエントリ数を表示するなら、
+            // そのためのロジックもここに追加する必要がある。
+            // ここでは簡略化のため、常にTop RSSIのエントリ数を表示対象とする。
             xSemaphoreGive(dataManagerSemaphore);
         } else {
-            M5.Log.println("[WARNING] Failed to take dataManagerSemaphore in loop for RID count.");
+            M5.Log.println("[WARNING] Failed to take dataManagerSemaphore in loop for display counts.");
         }
+
         // ヘッダ情報表示
-        char header_buf[80];
+        char header_buf[120];
         if (channelLockModeActive) {
             if (lockedChannel != -1) {
-                snprintf(header_buf, sizeof(header_buf), "Ch:%2d(L) RIDs:%d H:%u", lockedChannel, current_rid_count, ESP.getFreeHeap());
+                // Ch:XX(L) RIDs:Y H:ZZZZ Ents:W
+                snprintf(header_buf, sizeof(header_buf), "Ch:%2d(L) RIDs:%d H:%u Ents:%d",
+                         lockedChannel, current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
             } else {
-                snprintf(header_buf, sizeof(header_buf), "Ch:Lock? RIDs:%d H:%u", current_rid_count, ESP.getFreeHeap()); // 固定試行中だが未確定
+                // Ch:Lock? RIDs:Y H:ZZZZ Ents:W
+                snprintf(header_buf, sizeof(header_buf), "Ch:Lock? RIDs:%d H:%u Ents:%d",
+                         current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
             }
         } else {
-            snprintf(header_buf, sizeof(header_buf), "Ch:%2d(S) RIDs:%d H:%u", channel, current_rid_count, ESP.getFreeHeap()); // (S)can mode
+            // Ch:XX(S) RIDs:Y H:ZZZZ Ents:W
+            snprintf(header_buf, sizeof(header_buf), "Ch:%2d(S) RIDs:%d H:%u Ents:%d",
+                     channel, current_rid_count_total, ESP.getFreeHeap(), top_rid_entry_count);
         }
         dc.println(header_buf);
         // 区切り線表示
@@ -680,9 +698,9 @@ void loop()
                             snprintf(line_buf, sizeof(line_buf), "P:%.0fm G:%.0fm %s", latest_entry.pressureAltitude, latest_entry.gpsAltitude, time_str);
                             dc.println(line_buf);
                             // 5行目: Beacon TSF タイムスタンプ (下位桁のみ表示)
-                            snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03lu.%06lu",
-                                     (unsigned long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000), // 秒部分の下3桁 (TSFはマイクロ秒単位)
-                                     (unsigned long)(latest_entry.beaconTimestamp % 1000000ULL));       // マイクロ秒部分6桁
+                            snprintf(line_buf, sizeof(line_buf), "BcnTS: ..%03llu.%06llu",
+                                     (unsigned long long)((latest_entry.beaconTimestamp / 1000000ULL) % 1000ULL),
+                                     (unsigned long long)(latest_entry.beaconTimestamp % 1000000ULL));
                             dc.println(line_buf);
                             displayed_count++;
                         }

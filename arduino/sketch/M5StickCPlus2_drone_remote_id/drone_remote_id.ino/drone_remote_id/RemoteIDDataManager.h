@@ -121,19 +121,19 @@ public:
     /// @return RSSI降順、その後RID文字列昇順でソートされたペアのベクター
     std::vector<std::pair<int, String>> getSortedRIDsByRSSI() const;
 
-    /// @brief RSSIが最も高い上位 `count` 件のRIDデータをJSON形式で取得します
+    /// @brief RSSIが最も高い上位 `count` 件のRIDデータを、受け取ったストリームに出力します
     ///        現状の実装では `count` は実質1として動作し、最もRSSIが高い1つのRIDのデータを返します
     /// @param count 取得する上位RIDの数 (現在は1に固定して利用されることを想定)
     /// @param max_log_entries 1つのRIDに対してJSONに含めるデータエントリの最大数
-    /// @return 指定された条件に合致するRIDのデータを格納したJSON文字列。該当データがない場合は空のJSONオブジェクト文字列 "{}"
-    String getJsonForTopRSSI(int count, size_t max_log_entries) const;
+    /// @param output_stream 出力ストリームを受け取る
+    void getJsonForTopRSSI(int count, size_t max_log_entries, Print& output_stream) const;
 
-    /// @brief 指定された登録記号を持つRIDのデータをJSON形式で取得します
+    /// @brief 指定された登録記号を持つRIDのデータを、受け取ったストリームに出力します
     ///        最初に見つかった登録記号に合致するRIDのデータを返します
     /// @param regNo 検索する機体登録記号
     /// @param max_log_entries JSONに含めるデータエントリの最大数
-    /// @return 指定された登録記号のRIDデータを格納したJSON文字列。該当データがない場合は空のJSONオブジェクト文字列 "{}"
-    String getJsonForRegistrationNo(const String& regNo, size_t max_log_entries) const;
+    /// @param output_stream 出力ストリームを受け取る
+    void getJsonForRegistrationNo(const String& regNo, size_t max_log_entries, Print& output_stream) const;
 
     /// @brief RSSIが最も高いRIDの最新データが受信されたWi-Fiチャンネルを取得します
     /// @return 最新のWi-Fiチャンネル番号。該当データがない場合は-1
@@ -178,7 +178,7 @@ private:
     String _target_rid_value; ///< 特別扱いするRIDの識別子。このRIDはより多くのデータを保持します
 
     static const size_t TARGET_RID_MAX_DATA = 1200; ///< `_target_rid_value` に指定されたRIDが保持するデータエントリの最大数
-    static const size_t OTHER_RID_MAX_DATA = 600;   ///< `_target_rid_value` 以外のRIDが保持するデータエントリの最大数
+    static const size_t OTHER_RID_MAX_DATA = 1;   ///< `_target_rid_value` 以外のRIDが保持するデータエントリの最大数
     static const time_t ONE_MINUTE_IN_SECONDS = 60; ///< 1分間の秒数 (定数)
 
     /// @brief RID文字列をキーとして、RIDDataContainerを値とするマップ
