@@ -4,7 +4,8 @@
 
 M5Stackデバイス (M5StickC Plus2 / M5GOなど) を使用して、Wi-Fi Beaconフレームをスキャンし、ASTM F3411-19規格に準拠したドローンのリモートID (RID) データを抽出・表示・記録するツールです。
 
-![Demo Screenshot (Optional)](./docs/images/screenshot.png) <!-- もしスクリーンショットがあれば -->
+![Demo Screenshot LCD](./screenshot_lcd.jpg)
+![Demo Screenshot Serial](./screenshot_serial.png)
 
 ## 概要
 
