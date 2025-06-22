@@ -14,10 +14,18 @@ Arduino sketch and ESP-IDF project.
 sketch名は[マイコンチップ名]-[コントローラ名]-[ターゲット名]とする
 
 - arduino
+    - M5StickCPlus2_drone_remote_id : ドローンのリモートIDレコーダー
+        - 2025/06/21-22に開催された[NT金沢](https://wiki.nicotech.jp/nico_tech/?NT%E9%87%91%E6%B2%A22025)に出展した作品のArduino sketchである
+        - M5StickCPlus2とM5GOで動作した
+        - ソフトの[説明](./M5StickCPlus2_drone_remote_id/drone_remote_id.ino/drone_remote_id/README.md)
+        - ポスター「[M5Stackで作る！ドローン リモートID レコーダー](https://drive.google.com/file/d/1L6RqIcEoBAnKdCa3u61R1lOYLGUpBHNA/view?usp=drive_link)」
+        - Qiita記事「[M5StickC Plus2で作る！DJIドローンのリモートID(Wi-Fi Beacon)レコーダー](https://qiita.com/igapon1/items/8637c93c93af2fb3ceef)」
+        - ポスター「[【無料＆簡単】アンケートで作る！ドローン飛行日誌作成ガイド](https://drive.google.com/file/d/1UDvaNUnQxfIB1x9-XLwuRGgWKFpvdHA1/view?usp=drive_link)」
+        - Qiita記事「[ドローンの飛行日誌はアンケートで記録しよう](https://qiita.com/igapon1/items/6fd2bf68abe64cc17787)」
     - RB0021_Omni4WD_PID : i2cから受信してモーター制御スケッチ
     - im920_serial_tx : IM920から受信してi2cに送信スケッチ
     - arduino_PS3USB / arduino_PS4USB / ESP32_PS3BT_PS3BT / ESP32_PS4BT_PS4BT : PSコントローラから受信してIM920に送信スケッチ
-        - (作成中)2018/12/12-13に開催された[NT加賀](http://wiki.nicotech.jp/nico_tech/index.php?NT%E5%8A%A0%E8%B3%802018)に出展した作品のArduino sketchである
+        - 2018/12/12-13に開催された[NT加賀](http://wiki.nicotech.jp/nico_tech/index.php?NT%E5%8A%A0%E8%B3%802018)に出展した作品のArduino sketchである
         - PS3 と PS4 コントローラのUSBやBLE接続が使用できる(ただしスケッチを変える必要がある)
         - IM920とのやり取りにSoftwareSerialを使用するため、SoftwareSerialに対応していないESP32は使えなかった。
             - 以下のコントロールを使用する
