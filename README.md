@@ -17,7 +17,7 @@ sketch名は[マイコンチップ名]-[コントローラ名]-[ターゲット�
     - M5StickCPlus2_drone_remote_id : ドローンのリモートIDレコーダー
         - 2025/06/21-22に開催された[NT金沢](https://wiki.nicotech.jp/nico_tech/?NT%E9%87%91%E6%B2%A22025)に出展した作品のArduino sketchである
         - M5StickCPlus2とM5GOで動作した
-        - ソフトの[説明](https://github.com/igaponr/NTigapon/M5StickCPlus2_drone_remote_id/drone_remote_id.ino/drone_remote_id/README.md)
+        - ソフトの[説明](arduino/sketch/M5StickCPlus2_drone_remote_id/drone_remote_id.ino/drone_remote_id)
         - ポスター「[M5Stackで作る！ドローン リモートID レコーダー](https://drive.google.com/file/d/1L6RqIcEoBAnKdCa3u61R1lOYLGUpBHNA/view?usp=drive_link)」
         - Qiita記事「[M5StickC Plus2で作る！DJIドローンのリモートID(Wi-Fi Beacon)レコーダー](https://qiita.com/igapon1/items/8637c93c93af2fb3ceef)」
         - ポスター「[【無料＆簡単】アンケートで作る！ドローン飛行日誌作成ガイド](https://drive.google.com/file/d/1UDvaNUnQxfIB1x9-XLwuRGgWKFpvdHA1/view?usp=drive_link)」
