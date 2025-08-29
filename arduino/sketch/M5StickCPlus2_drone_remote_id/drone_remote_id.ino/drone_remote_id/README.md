@@ -52,6 +52,7 @@ M5Stackデバイス (M5StickC Plus2 / M5GOなど) を使用して、Wi-Fi Beacon
 *   **ArduinoJson Library:** JSONデータの生成に使用 (バージョン `7.4.1` 時点で開発)
     *   [https://arduinojson.org/](https://arduinojson.org/)
 *   ESP32ボードマネージャ (M5Stack提供のもの、バージョン `3.2.1` 時点で開発)
+![ESP32のM5StickCPlus2](bord_m5stickcplus2.png)
 
 ## セットアップ
 
